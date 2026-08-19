@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { DropZone } from './DropZone.tsx'
 import { EncodingBar } from './EncodingBar.tsx'
-import { PreviewTable } from './PreviewTable.tsx'
+import { Grid } from './Grid.tsx'
 import type { CharEncoding } from '../io/encoding.ts'
 import type { HeaderMode } from '../io/parse.ts'
 import type { LoadResult } from '../io/read.ts'
@@ -179,7 +179,12 @@ export function App() {
               </div>
             </dl>
 
-            <PreviewTable table={result.table} />
+            <Grid table={result.table} />
+            <p className="gridnote">
+              全 {result.table.rowCount.toLocaleString()} 行のうち、実際に DOM
+              に載っているのは表示範囲のぶんだけです。行数を10倍にしても DOM
+              の数は変わりません。
+            </p>
           </>
         )}
       </main>
