@@ -1,0 +1,295 @@
+/* 【重要】Webフォントは読み込まない。
+   外部フォントを読むと通信が発生し、「通信が一切発生しない」（完成条件）を
+   満たせなくなる。見落としやすい経路なので、ここに書いておく。 */
+
+:root {
+  --fg: #1b1b1b;
+  --muted: #666;
+  --line: #dcdcdc;
+  --bg: #fff;
+  --accent: #1f4e79;
+  --warn-bg: #fff6e5;
+  --warn-line: #e0a13a;
+  --err: #b3261e;
+  font-family:
+    system-ui, -apple-system, 'Hiragino Sans', 'Yu Gothic UI', 'Noto Sans JP', sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.app {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px 24px 48px;
+}
+
+/* ---- ヘッダ ---- */
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.head__title {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 0.02em;
+}
+
+.head__sub {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.privacy {
+  max-width: 520px;
+  padding: 10px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.privacy strong {
+  display: block;
+  color: var(--accent);
+}
+
+/* ---- ドロップ ---- */
+.drop {
+  margin: 24px 0;
+  padding: 44px 20px;
+  border: 2px dashed var(--line);
+  border-radius: 10px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.drop--over {
+  border-color: var(--accent);
+  background: #f2f7fb;
+}
+
+.drop--disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.drop__main {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.drop__sub {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ---- 文字コード ---- */
+.encbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.encbar__label {
+  font-weight: 600;
+}
+
+.encbar__note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.encbar__warn {
+  color: #8a5a00;
+  font-size: 13px;
+}
+
+.conf {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.conf--ok {
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.conf--warn {
+  border: 1px solid var(--warn-line);
+  background: var(--warn-bg);
+  color: #8a5a00;
+}
+
+/* ---- 見出しの扱い ---- */
+.opts {
+  margin: 10px 0;
+  font-size: 13px;
+}
+
+/* ---- 統計 ---- */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px 24px;
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.stats dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.stats dd {
+  margin: 2px 0 0;
+  font-size: 15px;
+}
+
+.stats__note {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---- 表 ---- */
+.preview__note {
+  margin: 14px 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.preview__scroll {
+  overflow: auto;
+  max-height: 60vh;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.grid {
+  border-collapse: collapse;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.grid th,
+.grid td {
+  padding: 3px 10px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.grid thead th {
+  position: sticky;
+  top: 0;
+  background: #f6f6f6;
+  font-weight: 600;
+}
+
+.grid__rownum {
+  color: var(--muted);
+  text-align: right;
+  background: #fafafa;
+}
+
+/* セルの状態。第4段階で色分けが効いてくる。
+   いまは全セルが unchecked。 */
+.cell--unchecked {
+  background: transparent;
+}
+
+.cell--clean {
+  background: transparent;
+}
+
+.cell--issue {
+  background: #fff3f2;
+}
+
+.cell--fixed {
+  background: #eef7ee;
+}
+
+/* ---- 状態表示 ---- */
+.status {
+  color: var(--muted);
+}
+
+.error {
+  padding: 10px 14px;
+  border: 1px solid var(--err);
+  border-radius: 6px;
+  color: var(--err);
+}
+
+.warn {
+  padding: 12px 14px;
+  border: 1px solid var(--warn-line);
+  border-radius: 6px;
+  background: var(--warn-bg);
+}
+
+.warn p {
+  margin: 0 0 10px;
+}
+
+.warn__actions {
+  display: flex;
+  gap: 10px;
+}
+
+button {
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+/* ---- フッタ（仕様書9章：控えめに1つ） ---- */
+.foot {
+  margin-top: 40px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.foot a {
+  color: var(--muted);
+}
+
+.foot__sep {
+  margin: 0 8px;
+}
