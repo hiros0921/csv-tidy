@@ -25,6 +25,20 @@ export const FIXED = 3
 
 export type StateCode = typeof UNCHECKED | typeof CLEAN | typeof ISSUE | typeof FIXED
 
+/**
+ * 三分岐の区分コード。色分けだけに使う1バイト。
+ *
+ * 【なぜ別に持つか】
+ * 色を塗るのに必要なのは「どの区分か」だけで、説明文は要らない。
+ * 説明文まで含む詳細を Map に組み立てると、11万件で 138ms 止まった（実測）。
+ * 区分を Uint8Array にすれば転送はゼロコピーで、Map を待たずに色が出る。
+ * 説明文（ツールチップ）は、あとから空き時間に組み立てる。
+ */
+export const R_NONE = 0 // 問題なし
+export const R_AUTO = 1 // 自動で直せる
+export const R_CHOICE = 2 // 人が決める
+export const R_DETECT = 3 // 検出だけ
+
 /** 誰が直したか。7章「自動で直したものと人が直したものを区別すること」。 */
 export type FixSource =
   | { readonly kind: 'auto' }
@@ -72,7 +86,48 @@ export function cellIndex(col: number, row: number, rowCount: number): number {
   return col * rowCount + row
 }
 
-/** 状態コードと詳細から、CellState を組み立てる。ここが「型を作る境界」。 */
+/**
+ * 画面に色を塗るために必要な最小の情報。説明文を含まない。
+ *
+ * 【なぜ CellState と分けるか】
+ * 説明文は Worker に置いたままにした（メインへ送ると 151ms 止まるため）。
+ * つまりメインスレッドが持っているのは、1セルあたり2バイト
+ * ——状態コードと三分岐の区分——だけである。
+ * 塗るのに必要なのはそれで足り、説明文は見に行った1セルにしか要らない。
+ *
+ *   CellView  … 塗るための型。2バイトから作る
+ *   CellState … 説明するための型。詳細が手元にあるときに作る
+ *
+ * 型を1つにまとめて「説明文が無い issue」を許すと、
+ * 「まだ調べていない」と「調べたが説明文がここに無い」が混ざる。
+ * それは最初に潰したはずの混同なので、型を2つに分けた。
+ */
+export type CellView =
+  | { readonly kind: 'unchecked' }
+  | { readonly kind: 'clean' }
+  | { readonly kind: 'issue'; readonly remedy: RemedyCode }
+  | { readonly kind: 'fixed' }
+
+export type RemedyCode = typeof R_NONE | typeof R_AUTO | typeof R_CHOICE | typeof R_DETECT
+
+export function cellView(flags: Uint8Array, remedy: Uint8Array | null, index: number): CellView {
+  switch (flags[index]) {
+    case CLEAN:
+      return { kind: 'clean' }
+    case FIXED:
+      return { kind: 'fixed' }
+    case ISSUE: {
+      const code = remedy?.[index]
+      // 区分が無い＝色を決められない。塗らずに済ませる（clean と同じ見た目）。
+      if (code === undefined) return { kind: 'clean' }
+      return { kind: 'issue', remedy: code === R_AUTO ? R_AUTO : code === R_CHOICE ? R_CHOICE : code === R_DETECT ? R_DETECT : R_NONE }
+    }
+    default:
+      return { kind: 'unchecked' }
+  }
+}
+
+/** 状態コードと詳細から、CellState を組み立てる。説明が要るときに使う。 */
 export function cellState(
   flags: Uint8Array,
   details: ReadonlyMap<number, CellDetail>,

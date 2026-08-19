@@ -254,8 +254,12 @@ body {
   text-overflow: ellipsis;
 }
 
-/* セルの状態。第4段階で色分けが効いてくる。いまは全セルが unchecked。 */
-.cell--unchecked,
+/* 未検査は薄い灰。問題なし（無地）と見分けがつく必要がある。
+   両方とも無地にすると、解析が途中で止まったセルに気づけない。 */
+.cell--unchecked {
+  background: #f4f4f4;
+}
+
 .cell--clean {
   background: transparent;
 }
@@ -329,4 +333,273 @@ button:hover {
 
 .foot__sep {
   margin: 0 8px;
+}
+
+/* ---- 三分岐の色分け（仕様書4章） ----
+   色は「どれくらい人手が要るか」を表す。深刻さの順ではない。 */
+.cell--auto {
+  background: #eef4fb; /* 自動で直せる */
+}
+
+.cell--choice {
+  background: #fff6e0; /* 人が決める */
+}
+
+.cell--none {
+  background: #fdeeee; /* 検出だけ */
+}
+
+.vgrid__rownum--dup {
+  color: #8a5a00;
+  background: #fff6e0;
+  font-weight: 600;
+}
+
+/* ---- 進捗 ---- */
+.prog {
+  margin: 16px 0;
+}
+
+.prog__bar {
+  height: 6px;
+  border-radius: 3px;
+  background: #eee;
+  overflow: hidden;
+}
+
+.prog__fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.1s linear;
+}
+
+.prog__text {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.prog__note {
+  margin-left: 10px;
+}
+
+/* ---- 検出結果 ---- */
+.panel {
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.panel__three {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.three {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: 4px;
+}
+
+.three--auto {
+  border-left-color: #6f9fd8;
+  background: #eef4fb;
+}
+
+.three--choice {
+  border-left-color: #e0a13a;
+  background: #fff6e0;
+}
+
+.three--none {
+  border-left-color: #d38b86;
+  background: #fdeeee;
+}
+
+.three__n {
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.three__t {
+  font-weight: 600;
+}
+
+.three__d {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.panel__note {
+  margin: 12px 0 0;
+}
+
+.panel__cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.panel__why {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.tbl th,
+.tbl td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.tbl th {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tbl--num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 凡例 ---- */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.sw {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+
+.sw--unchecked {
+  background: #f4f4f4;
+}
+
+.sw--clean {
+  background: #fff;
+}
+
+.sw--auto {
+  background: #eef4fb;
+}
+
+.sw--choice {
+  background: #fff6e0;
+}
+
+.sw--none {
+  background: #fdeeee;
+}
+
+.sw--dup {
+  background: #fff6e0;
+  border-color: #e0a13a;
+}
+
+/* ---- カーソルを合わせたセルの説明 ---- */
+.inspect {
+  min-height: 76px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.inspect__idle {
+  color: var(--muted);
+}
+
+.inspect__head {
+  font-weight: 600;
+}
+
+.inspect__val {
+  margin-left: 10px;
+  padding: 1px 8px;
+  border-radius: 3px;
+  background: #f4f4f4;
+  font-weight: 400;
+}
+
+.inspect__ok {
+  color: var(--muted);
+}
+
+.inspect__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 6px;
+  padding-left: 8px;
+  border-left: 3px solid var(--line);
+}
+
+.inspect__row--auto {
+  border-left-color: #6f9fd8;
+}
+
+.inspect__row--choice {
+  border-left-color: #e0a13a;
+}
+
+.inspect__row--none {
+  border-left-color: #d38b86;
+}
+
+.inspect__tag {
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.inspect__opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.inspect__opt {
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: #fafafa;
+}
+
+.inspect__cnt {
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
 }

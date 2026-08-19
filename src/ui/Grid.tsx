@@ -19,16 +19,54 @@
 import { useCallback, useMemo, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Table } from '../domain/table.ts'
-import { cellIndex, cellState } from '../domain/cell.ts'
+import type { CellView } from '../domain/cell.ts'
+import { R_AUTO, R_CHOICE, R_DETECT, cellIndex, cellView } from '../domain/cell.ts'
+import type { Issue } from '../domain/issue.ts'
 import { computeWidths } from './widths.ts'
+
+/**
+ * セルの見た目を、状態と三分岐の区分コードから決める。
+ *
+ * 未検査（灰）／問題なし（無地）／自動で直せる（青）／人が決める（黄）／検出だけ（赤）。
+ * 色は「どれくらい人手が要るか」を表す。深刻さの順ではない。
+ *
+ * 【重要】ここで詳細（説明文）を見ない。1バイトの区分だけで塗る。
+ * 詳細の Map を待つと、11万件のときに 138ms 止まる（実測）。
+ */
+function cellClass(view: CellView): string {
+  switch (view.kind) {
+    case 'unchecked':
+      return 'cell--unchecked'
+    case 'clean':
+      return 'cell--clean'
+    case 'fixed':
+      return 'cell--fixed'
+    case 'issue':
+      return view.remedy === R_AUTO
+        ? 'cell--auto'
+        : view.remedy === R_CHOICE
+          ? 'cell--choice'
+          : view.remedy === R_DETECT
+            ? 'cell--none'
+            : 'cell--clean'
+  }
+}
 
 const ROW_H = 26
 const HEADER_H = 30
 const GUTTER_W = 64
 
-type Props = { readonly table: Table }
+type Props = {
+  readonly table: Table
+  /** 三分岐の区分コード。検出前は null。 */
+  readonly remedy: Uint8Array | null
+  /** 行単位の問題（重複行）。セルではなく行に付く。 */
+  readonly rowIssues: ReadonlyMap<number, Issue>
+  /** カーソルが乗ったセル。説明文はここから Worker に聞きに行く。 */
+  readonly onHover: (index: number, row: number, col: number, value: string) => void
+}
 
-export function Grid({ table }: Props) {
+export function Grid({ table, remedy, rowIssues, onHover }: Props) {
   const bodyRef = useRef<HTMLDivElement>(null)
   const headerInnerRef = useRef<HTMLDivElement>(null)
   const gutterInnerRef = useRef<HTMLDivElement>(null)
@@ -95,7 +133,12 @@ export function Grid({ table }: Props) {
       <div className="vgrid__gutter" style={{ top: HEADER_H, width: GUTTER_W }}>
         <div ref={gutterInnerRef} style={{ position: 'relative', height: totalH }}>
           {rows.map((r) => (
-            <div key={r.key} className="vgrid__rownum" style={{ top: r.start, height: ROW_H }}>
+            <div
+              key={r.key}
+              className={`vgrid__rownum ${rowIssues.has(r.index) ? 'vgrid__rownum--dup' : ''}`}
+              style={{ top: r.start, height: ROW_H }}
+              title={rowIssues.get(r.index)?.note ?? ''}
+            >
               {r.index + 1}
             </div>
           ))}
@@ -114,16 +157,16 @@ export function Grid({ table }: Props) {
             cols.map((c) => {
               const column = table.columns[c.index]
               if (column === undefined) return null
-              const state = cellState(
-                table.flags,
-                table.details,
-                cellIndex(c.index, r.index, table.rowCount),
-              )
+              const index = cellIndex(c.index, r.index, table.rowCount)
+              const view = cellView(table.flags, remedy, index)
               return (
                 <div
                   key={`${r.key}:${c.key}`}
-                  className={`vgrid__cell cell--${state.kind}`}
+                  className={`vgrid__cell ${cellClass(view)}`}
                   data-vrow={r.index}
+                  onMouseEnter={() =>
+                    onHover(index, r.index, c.index, column.values[r.index] ?? '')
+                  }
                   style={{ top: r.start, left: c.start, width: c.size, height: ROW_H }}
                 >
                   {column.values[r.index] ?? ''}

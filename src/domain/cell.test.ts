@@ -8,7 +8,18 @@
 
 import { describe, expect, it } from 'vitest'
 import type { CellDetail, CellState } from './cell.ts'
-import { CLEAN, FIXED, ISSUE, UNCHECKED, cellIndex, cellState } from './cell.ts'
+import {
+  CLEAN,
+  FIXED,
+  ISSUE,
+  R_AUTO,
+  R_CHOICE,
+  R_NONE,
+  UNCHECKED,
+  cellIndex,
+  cellState,
+  cellView,
+} from './cell.ts'
 import type { Issue, Remedy } from './issue.ts'
 import { applyAuto } from './issue.ts'
 import { buildTable, countUnchecked } from './table.ts'
@@ -128,5 +139,26 @@ describe('CellState の網羅性', () => {
     }
     expect(describeState({ kind: 'unchecked' })).toContain('まだ')
     expect(describeState({ kind: 'issue', issues: [anIssue] })).toContain('1件')
+  })
+})
+
+describe('塗るための型（CellView）と、説明するための型（CellState）', () => {
+  it('検出後、詳細が手元になくても色は決まる', () => {
+    // 説明文は Worker に置いたまま。メインが持つのは2バイトだけ。
+    const flags = new Uint8Array([ISSUE, ISSUE, CLEAN, UNCHECKED])
+    const remedy = new Uint8Array([R_AUTO, R_CHOICE, R_NONE, R_NONE])
+    expect(cellView(flags, remedy, 0)).toEqual({ kind: 'issue', remedy: R_AUTO })
+    expect(cellView(flags, remedy, 1)).toEqual({ kind: 'issue', remedy: R_CHOICE })
+    expect(cellView(flags, remedy, 2)).toEqual({ kind: 'clean' })
+    expect(cellView(flags, remedy, 3)).toEqual({ kind: 'unchecked' })
+  })
+
+  it('検出前は、区分が無くても未検査のままになる', () => {
+    const flags = new Uint8Array([UNCHECKED, UNCHECKED])
+    expect(cellView(flags, null, 0).kind).toBe('unchecked')
+  })
+
+  it('範囲外は未検査に倒す（clean にしない）', () => {
+    expect(cellView(new Uint8Array([CLEAN]), null, 99).kind).toBe('unchecked')
   })
 })

@@ -1,46 +1,94 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { DropZone } from './DropZone.tsx'
 import { EncodingBar } from './EncodingBar.tsx'
 import { Grid } from './Grid.tsx'
-import type { CharEncoding } from '../io/encoding.ts'
+import { IssuePanel } from './IssuePanel.tsx'
+import type { CharEncoding, Detection } from '../io/encoding.ts'
 import type { HeaderMode } from '../io/parse.ts'
-import type { LoadResult } from '../io/read.ts'
-import { SIZE_WARN_BYTES, kindOf, loadFile } from '../io/read.ts'
-import { countUnchecked } from '../domain/table.ts'
+import type { AnalyzedPart, LoadedPart } from '../io/analyzeClient.ts'
+import type { Session } from '../io/analyzeClient.ts'
+import { SIZE_WARN_BYTES, kindOf, startAnalyze } from '../io/analyzeClient.ts'
+import type { Progress } from '../domain/detect/index.ts'
+import type { Table } from '../domain/table.ts'
+import type { Issue } from '../domain/issue.ts'
 
 function mb(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+const PHASE_LABEL: Readonly<Record<Progress['phase'], string>> = {
+  columns: '列の性格を調べています',
+  cells: 'セルを調べています',
+  rows: '重複行を調べています',
+}
+
+const EMPTY_ROW_ISSUES: ReadonlyMap<number, Issue> = new Map()
+
+const REMEDY_LABEL = {
+  auto: '自動で直せる',
+  choice: '人が決める',
+  none: '検出だけ',
+} as const
+
+type Inspect = {
+  readonly row: number
+  readonly colName: string
+  readonly value: string
+  readonly issues: readonly Issue[]
+  readonly rowIssue: Issue | null
+}
+
 export function App() {
   const [file, setFile] = useState<File | null>(null)
-  const [result, setResult] = useState<LoadResult | null>(null)
+  const [table, setTable] = useState<Table | null>(null)
+  const [detection, setDetection] = useState<Detection | null>(null)
+  const [loaded, setLoaded] = useState<LoadedPart | null>(null)
+  const [analyzed, setAnalyzed] = useState<AnalyzedPart | null>(null)
+  const [progress, setProgress] = useState<Progress | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [headerMode, setHeaderMode] = useState<HeaderMode>('first-row')
-  /** 目安を超える大きさのファイル。読み込む前に確認する。 */
   const [oversized, setOversized] = useState<File | null>(null)
+  const [inspect, setInspect] = useState<Inspect | null>(null)
 
-  const run = useCallback(
-    async (target: File, mode: HeaderMode, override?: CharEncoding) => {
-      setBusy(true)
-      setError(null)
-      try {
-        const loaded = await loadFile(
-          target,
-          override === undefined ? { headerMode: mode } : { headerMode: mode, encodingOverride: override },
-        )
-        setResult(loaded)
-        setFile(target)
-      } catch (e) {
-        setResult(null)
-        setError(e instanceof Error ? e.message : String(e))
-      } finally {
-        setBusy(false)
-      }
-    },
-    [],
-  )
+  /** 走っている Worker を止めるための取っ手。読み直すときに前のを捨てる。 */
+  const sessionRef = useRef<Session | null>(null)
+  useEffect(() => () => sessionRef.current?.cancel(), [])
+
+  const run = useCallback((target: File, mode: HeaderMode, override?: CharEncoding) => {
+    sessionRef.current?.cancel()
+    setBusy(true)
+    setError(null)
+    setAnalyzed(null)
+    setProgress(null)
+    setFile(target)
+
+    sessionRef.current = startAnalyze(
+      target,
+      override === undefined ? { headerMode: mode } : { headerMode: mode, encodingOverride: override },
+      {
+        onLoaded: (part) => {
+          // 表は先に出す。検出を待たせない。
+          setTable(part.table)
+          setDetection(part.detection)
+          setLoaded(part)
+        },
+        onProgress: setProgress,
+        onAnalyzed: (part) => {
+          setAnalyzed(part)
+          setProgress(null)
+          setBusy(false)
+          // 色分けに要るものだけ、先に反映する。flags も remedy も転送済み（コピーなし）。
+          setTable((prev) => (prev === null ? prev : { ...prev, flags: part.flags }))
+        },
+        onFailed: (message) => {
+          setError(message)
+          setBusy(false)
+          setProgress(null)
+        },
+      },
+    )
+  }, [])
 
   const onFile = useCallback(
     (target: File) => {
@@ -52,7 +100,7 @@ export function App() {
         setOversized(target)
         return
       }
-      void run(target, headerMode)
+      run(target, headerMode)
     },
     [run, headerMode],
   )
@@ -60,7 +108,7 @@ export function App() {
   const onEncodingChange = useCallback(
     (encoding: CharEncoding) => {
       // 復号済みの文字列からは戻せない。元の File から読み直す。
-      if (file !== null) void run(file, headerMode, encoding)
+      if (file !== null) run(file, headerMode, encoding)
     },
     [file, run, headerMode],
   )
@@ -68,12 +116,33 @@ export function App() {
   const onHeaderModeChange = useCallback(
     (mode: HeaderMode) => {
       setHeaderMode(mode)
-      if (file !== null) {
-        void run(file, mode, result?.detection?.encoding)
-      }
+      if (file !== null) run(file, mode, detection?.encoding)
     },
-    [file, run, result],
+    [file, run, detection],
   )
+
+  const onHover = useCallback(
+    (index: number, row: number, col: number, value: string) => {
+      const colName = table?.columns[col]?.name ?? ''
+      const rowIssue = analyzed?.rowIssues.get(row) ?? null
+      const ask = analyzed?.askDetail
+      if (ask === undefined) {
+        setInspect({ row, colName, value, issues: [], rowIssue })
+        return
+      }
+      void ask(index).then((detail) => {
+        const issues =
+          detail === null ? [] : detail.kind === 'issue' ? detail.issues : detail.resolved
+        setInspect({ row, colName, value, issues, rowIssue })
+      })
+    },
+    [table, analyzed],
+  )
+
+  const pct =
+    progress === null || progress.total === 0
+      ? 0
+      : Math.round((progress.done / progress.total) * 100)
 
   return (
     <div className="app">
@@ -90,7 +159,7 @@ export function App() {
       </header>
 
       <main>
-        <DropZone onFile={onFile} disabled={busy} />
+        <DropZone onFile={onFile} disabled={false} />
 
         {oversized !== null && (
           <div className="warn">
@@ -105,7 +174,7 @@ export function App() {
                 onClick={() => {
                   const target = oversized
                   setOversized(null)
-                  void run(target, headerMode)
+                  run(target, headerMode)
                 }}
               >
                 それでも読み込む
@@ -117,23 +186,30 @@ export function App() {
           </div>
         )}
 
-        {busy && <p className="status">読み込んでいます…</p>}
         {error !== null && <p className="error">{error}</p>}
 
-        {result !== null && (
+        {progress !== null && (
+          <div className="prog">
+            <div className="prog__bar">
+              <div className="prog__fill" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="prog__text">
+              {PHASE_LABEL[progress.phase]} — {progress.done.toLocaleString()} /{' '}
+              {progress.total.toLocaleString()}（{pct}%）
+              <span className="prog__note">この間も画面は動きます（別スレッドで処理しています）</span>
+            </div>
+          </div>
+        )}
+
+        {table !== null && loaded !== null && (
           <>
-            <EncodingBar
-              detection={result.detection}
-              onChange={onEncodingChange}
-              busy={busy}
-            />
+            <EncodingBar detection={detection} onChange={onEncodingChange} busy={busy} />
 
             <div className="opts">
               <label>
                 <input
                   type="checkbox"
                   checked={headerMode === 'first-row'}
-                  disabled={busy}
                   onChange={(e) =>
                     onHeaderModeChange(e.target.checked ? 'first-row' : 'generated')
                   }
@@ -145,45 +221,126 @@ export function App() {
             <dl className="stats">
               <div>
                 <dt>ファイル</dt>
-                <dd>
-                  {result.fileName}（{mb(result.bytes)}・{result.kind}）
-                </dd>
+                <dd>{file?.name ?? ''}（{mb(file?.size ?? 0)}）</dd>
               </div>
               <div>
                 <dt>行 × 列</dt>
                 <dd>
-                  {result.table.rowCount.toLocaleString()} 行 × {result.table.columns.length} 列
+                  {table.rowCount.toLocaleString()} 行 × {table.columns.length} 列
                 </dd>
               </div>
               <div>
-                <dt>未検査のセル</dt>
+                <dt>読み込み</dt>
                 <dd>
-                  {countUnchecked(result.table).toLocaleString()} 個
+                  {loaded.loadMs.toFixed(0)} ms
                   <span className="stats__note">
-                    読み込んだだけでは、まだ1つも調べていません（第4段階で検査します）
+                    判定 {loaded.detail.detectMs.toFixed(0)} / 復号{' '}
+                    {loaded.detail.decodeMs.toFixed(0)} / パース{' '}
+                    {loaded.detail.parseMs.toFixed(0)} / 列に組替{' '}
+                    {loaded.detail.pivotMs.toFixed(0)} ms（すべて別スレッド）
                   </span>
                 </dd>
               </div>
               <div>
-                <dt>所要時間</dt>
+                <dt>検出</dt>
                 <dd>
-                  合計 {result.timings.totalMs.toFixed(0)} ms
+                  {analyzed === null ? '調べています…' : `${analyzed.analyzeMs.toFixed(0)} ms`}
                   <span className="stats__note">
-                    読込 {result.timings.readMs.toFixed(0)} / 判定{' '}
-                    {result.timings.detectMs.toFixed(0)} / 復号{' '}
-                    {result.timings.decodeMs.toFixed(0)} / パース{' '}
-                    {result.timings.parseMs.toFixed(0)} / 構築{' '}
-                    {result.timings.buildMs.toFixed(0)} ms
+                    {analyzed === null
+                      ? '結果が出るまで、表はそのまま操作できます'
+                      : `${analyzed.summary.checkedCells.toLocaleString()} セルを検査しました`}
                   </span>
                 </dd>
               </div>
             </dl>
 
-            <Grid table={result.table} />
+            {analyzed !== null && (
+              <IssuePanel
+                summary={analyzed.summary}
+                columnNames={table.columns.map((c) => c.name)}
+              />
+            )}
+
+            <div className="legend">
+              <span className="legend__item">
+                <i className="sw sw--unchecked" />未検査
+              </span>
+              <span className="legend__item">
+                <i className="sw sw--clean" />問題なし
+              </span>
+              <span className="legend__item">
+                <i className="sw sw--auto" />自動で直せる
+              </span>
+              <span className="legend__item">
+                <i className="sw sw--choice" />人が決める
+              </span>
+              <span className="legend__item">
+                <i className="sw sw--none" />検出だけ
+              </span>
+              <span className="legend__item">
+                <i className="sw sw--dup" />重複行（行番号に印）
+              </span>
+            </div>
+
+            <Grid
+              table={table}
+              remedy={analyzed?.remedy ?? null}
+              rowIssues={analyzed?.rowIssues ?? EMPTY_ROW_ISSUES}
+              onHover={onHover}
+            />
+
+            <div className="inspect">
+              {inspect === null ? (
+                <span className="inspect__idle">
+                  セルにカーソルを合わせると、そのセルで見つかったことが出ます。
+                </span>
+              ) : (
+                <>
+                  <div className="inspect__head">
+                    {inspect.row + 1} 行目・{inspect.colName}
+                    <span className="inspect__val">{inspect.value === '' ? '（空欄）' : inspect.value}</span>
+                  </div>
+                  {inspect.issues.length === 0 && inspect.rowIssue === null && (
+                    <div className="inspect__ok">
+                      {analyzed === null ? 'まだ調べていません' : '問題は見つかりませんでした'}
+                    </div>
+                  )}
+                  {inspect.issues.map((issue, i) => (
+                    <div key={i} className={`inspect__row inspect__row--${issue.remedy.kind}`}>
+                      <span className="inspect__tag">{REMEDY_LABEL[issue.remedy.kind]}</span>
+                      <span>{issue.note}</span>
+                      {issue.remedy.kind === 'choice' && (
+                        <span className="inspect__opts">
+                          {issue.remedy.options.map((o, j) => (
+                            <span key={j} className="inspect__opt">
+                              {o.value}
+                              {o.occurrences > 0 && (
+                                <em className="inspect__cnt">{o.occurrences.toLocaleString()}件</em>
+                              )}
+                            </span>
+                          ))}
+                        </span>
+                      )}
+                      {issue.remedy.kind === 'auto' && (
+                        <span className="inspect__opts">
+                          <span className="inspect__opt">→ {issue.remedy.to}</span>
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                  {inspect.rowIssue !== null && (
+                    <div className="inspect__row inspect__row--choice">
+                      <span className="inspect__tag">人が決める</span>
+                      <span>{inspect.rowIssue.note}</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
             <p className="gridnote">
-              全 {result.table.rowCount.toLocaleString()} 行のうち、実際に DOM
-              に載っているのは表示範囲のぶんだけです。行数を10倍にしても DOM
-              の数は変わりません。
+              全 {table.rowCount.toLocaleString()} 行のうち、実際に DOM
+              に載っているのは表示範囲のぶんだけです。行数を10倍にしても DOM の数は変わりません。
             </p>
           </>
         )}
