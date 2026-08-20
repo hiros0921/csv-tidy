@@ -74,7 +74,7 @@ export function App() {
   const [editState, setEditState] = useState(emptyEditState())
   /** 前回の検査のあとに直した操作の数。0 でなければ集計が古い。 */
   const [editsSinceCheck, setEditsSinceCheck] = useState(0)
-  const [offline, setOffline] = useState<OfflineState>('unsupported')
+  const [offline, setOffline] = useState<OfflineState>({ kind: 'unsupported' })
   const [lastExport, setLastExport] = useState<{
     readonly bytes: number
     readonly encoding: CharEncoding
@@ -383,9 +383,21 @@ export function App() {
           <strong>データの送信は一切ありません。</strong>
           読み込んだファイルは、すべてブラウザの中だけで処理します。
           どこにも送りませんし、ブラウザにも残しません（タブを閉じると消えます）。
-          {offline === 'ready' && (
+          {/* 【重要】保存し終わるまでは「使えます」と言わない。
+              登録できたことと、取り終わったことは別である。 */}
+          {offline.kind === 'ready' && (
             <span className="privacy__offline">
-              ネットワークを切っても、そのまま使えます。
+              ネットワークを切っても、そのまま使えます（{offline.total} 件を保存済み）。
+            </span>
+          )}
+          {offline.kind === 'preparing' && (
+            <span className="privacy__offline">
+              オフラインで使えるように保存しています（{offline.stored} / {offline.total} 件）。
+            </span>
+          )}
+          {offline.kind === 'failed' && (
+            <span className="privacy__offline">
+              オフラインの保存はできていません。ネットワークがあれば、そのまま使えます。
             </span>
           )}
         </div>

@@ -85,6 +85,9 @@ const ASSETS = ${JSON.stringify([publicBase, ...assets], null, 2)}
 const INDEX = '${publicBase}'
 
 self.addEventListener('install', (event) => {
+  // 【重要】addAll は全部そろって初めて成功する（途中で失敗したら全体が失敗）。
+  // その場合この Service Worker は捨てられ、前の版が動き続ける。
+  // 中途半端な保存で activate させないための性質なので、そのまま使う。
   event.waitUntil(
     caches
       .open(CACHE)
@@ -93,6 +96,28 @@ self.addEventListener('install', (event) => {
       // 新旧のチャンクが混ざって動かなくなる。
       .then(() => self.skipWaiting()),
   )
+})
+
+/**
+ * 保存が本当に終わったかを、画面へ答える。
+ *
+ * 【重要】登録できたことと、保存し終わったことは別である。
+ * 登録できた時点で「オフラインでも使えます」と出すと、
+ * まだ保存が終わっていないのにそう名乗ることになる。
+ * 実測でその状態を踏んだので、数えて答えるようにした。
+ */
+self.addEventListener('message', (event) => {
+  if (event.data !== 'status') return
+  const reply = event.ports[0]
+  if (!reply) return
+  caches
+    .open(CACHE)
+    .then((cache) => Promise.all(ASSETS.map((a) => cache.match(a))))
+    .then((hits) => {
+      const stored = hits.filter(Boolean).length
+      reply.postMessage({ stored: stored, total: ASSETS.length })
+    })
+    .catch(() => reply.postMessage({ stored: 0, total: ASSETS.length }))
 })
 
 self.addEventListener('activate', (event) => {
