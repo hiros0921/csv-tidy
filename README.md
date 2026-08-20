@@ -110,6 +110,34 @@ Workbox のようなライブラリは足していません。やることは
 毎回すべてを取りに行くと、ネットワークが切れているときに
 「すでに全部そろっているのに取りに行って失敗する」ことになります。
 
+### `Vary` を無視しないと、キャッシュから引けない
+
+**これが、いちばん見つけにくい不具合でした。**
+
+保存はできているのに、`index-*.js` と `index-*.css` だけが毎回
+ネットワークから取り直されていました（実測で 160 kB）。オフラインだと、そこで失敗します。
+
+原因は2つの組み合わせです。
+
+- 配信側が資産に **`Vary`** を付けて返す（`vite preview` は `Vary: Origin`、
+  GitHub Pages は `Vary: Accept-Encoding`）
+- Vite が出す `<script type="module" crossorigin>` と
+  `<link rel="stylesheet" crossorigin>` は、**CORS の要求**として送られる
+
+Cache Storage の照合は `Vary` を尊重します。保存したときの要求と、
+画面が出す要求で `Origin` ヘッダの有無が違うため、**同じ URL なのに別物と判定**されます。
+
+切り分けられたのは、**外れたのが `crossorigin` の付いた2つだけ**だったからです。
+`crossorigin` の無いもの（画面そのもの・Worker・SheetJS）は、すべて引けていました。
+
+```js
+const MATCH = { ignoreVary: true }
+caches.match(request, MATCH)
+```
+
+「キャッシュに有るのに無いことにされ、取りに行って、オフラインだと失敗する」——
+**動いているように見えて、ネットワークを切ったときだけ壊れる**種類の不具合です。
+
 ---
 
 ## READMEに書きにくいこと：外した見積もりが3件あります

@@ -84,6 +84,23 @@ const CACHE = 'csv-tidy-${version}'
 const ASSETS = ${JSON.stringify([publicBase, ...assets], null, 2)}
 const INDEX = '${publicBase}'
 
+/**
+ * キャッシュの照合条件。
+ *
+ * 【重要】ignoreVary を付けないと引けない。実測で踏んだ。
+ *
+ * 配信側は資産に Vary: Origin を付けて返す（vite preview も GitHub Pages も
+ * 付けうる）。一方 Vite が出す <script type="module" crossorigin> と
+ * <link rel="stylesheet" crossorigin> は、CORS の要求として送られる。
+ * 保存したときの要求と、画面が出す要求で Origin ヘッダの有無が違うため、
+ * Vary を見る既定の照合では「別物」と判定されて外れる。
+ *
+ * その結果どうなるか：キャッシュに有るのに無いことにされ、
+ * 取りに行って、オフラインだと失敗する。
+ * 実測では index の JS と CSS だけが毎回 160kB 取り直されていた。
+ */
+const MATCH = { ignoreVary: true }
+
 self.addEventListener('install', (event) => {
   event.waitUntil(install())
 })
@@ -104,7 +121,7 @@ async function install() {
   const cache = await caches.open(CACHE)
   const missing = []
   for (const asset of ASSETS) {
-    const hit = await cache.match(asset)
+    const hit = await cache.match(asset, MATCH)
     if (!hit) missing.push(asset)
   }
   // addAll は全部そろって初めて成功する（途中で失敗したら全体が失敗）。
@@ -143,7 +160,7 @@ self.addEventListener('message', (event) => {
   if (!reply) return
   caches
     .open(CACHE)
-    .then((cache) => Promise.all(ASSETS.map((a) => cache.match(a))))
+    .then((cache) => Promise.all(ASSETS.map((a) => cache.match(a, MATCH))))
     .then((hits) => {
       // 【重要】足りないものの名前も返す。件数だけだと原因を追えない。
       const missing = ASSETS.filter((_, i) => !hits[i])
@@ -171,12 +188,12 @@ self.addEventListener('fetch', (event) => {
 
   // 画面の読み込みは、保存してある index を返す（オフラインでも開ける）。
   if (request.mode === 'navigate') {
-    event.respondWith(caches.match(INDEX).then((hit) => hit || fetch(request)))
+    event.respondWith(caches.match(INDEX, MATCH).then((hit) => hit || fetch(request)))
     return
   }
 
   event.respondWith(
-    caches.match(request).then((hit) => {
+    caches.match(request, MATCH).then((hit) => {
       if (hit) return hit
       // 一覧に無いもの（将来の追加など）は、取ってきて保存しておく。
       return fetch(request).then((res) => {
