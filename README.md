@@ -18,8 +18,6 @@ React 19 + TypeScript（`strict`）/ Vite / Web Worker。サーバーはあり�
 主張を言葉で書くだけでは弱いので、開発者ツールで数えました。
 **読み込み → 検出 → 修正 → 再検査 → 書き出し**まで通した結果です。
 
-![開発者ツールの Network タブ。外部への通信が0件であること](docs/network.png)
-
 | | 件数 |
 |---|---|
 | ページの読み込み | 3件（HTML・JS・CSS） |
@@ -27,6 +25,9 @@ React 19 + TypeScript（`strict`）/ Vite / Web Worker。サーバーはあり�
 | **外部（別オリジン）への要求** | **0件** |
 | favicon の要求 | **0件** |
 | Cookie / localStorage / sessionStorage / IndexedDB | すべて空 |
+
+公開先（GitHub Pages）でも同じです。読み込みから書き出しまで通して、
+要求は **HTML・JS・CSS・Worker の4件だけ**、いずれも同じ配信元でした。
 
 見落としやすい経路を、先に潰してあります。
 
