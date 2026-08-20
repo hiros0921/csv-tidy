@@ -73,11 +73,11 @@ describe('取り消し', () => {
 
 describe('列の一括置換（表記揺れの統一）', () => {
   const COL = [
-    '株式会社ヤマト商事',
-    '(株)ヤマト商事',
-    '㈱ヤマト商事',
-    'さくら物産株式会社',
-    '株式会社ヤマト商事',
+    '株式会社甲野商事',
+    '(株)甲野商事',
+    '㈱甲野商事',
+    '乙川物産株式会社',
+    '株式会社甲野商事',
   ]
 
   it('指定した表記だけを、指定した寄せ先へ変える', () => {
@@ -87,33 +87,33 @@ describe('列の一括置換（表記揺れの統一）', () => {
       1,
       AT,
       0,
-      new Set(['(株)ヤマト商事', '㈱ヤマト商事']),
-      '株式会社ヤマト商事',
+      new Set(['(株)甲野商事', '㈱甲野商事']),
+      '株式会社甲野商事',
       'notation_variant',
     )
     expect(op?.changes.length).toBe(2)
     if (op === null) return
     applyOp(t, op)
     expect(t.columns[0]?.values).toEqual([
-      '株式会社ヤマト商事',
-      '株式会社ヤマト商事',
-      '株式会社ヤマト商事',
-      'さくら物産株式会社',
-      '株式会社ヤマト商事',
+      '株式会社甲野商事',
+      '株式会社甲野商事',
+      '株式会社甲野商事',
+      '乙川物産株式会社',
+      '株式会社甲野商事',
     ])
   })
 
   it('関係のない値は触らない', () => {
     const t = table([COL])
-    const op = unifyColumn(t, 1, AT, 0, new Set(['(株)ヤマト商事']), '株式会社ヤマト商事', 'notation_variant')
+    const op = unifyColumn(t, 1, AT, 0, new Set(['(株)甲野商事']), '株式会社甲野商事', 'notation_variant')
     if (op === null) throw new Error('op')
     applyOp(t, op)
-    expect(t.columns[0]?.values[3]).toBe('さくら物産株式会社')
+    expect(t.columns[0]?.values[3]).toBe('乙川物産株式会社')
   })
 
   it('一括でも、1件ずつ前の値を持つので全部戻せる', () => {
     const t = table([COL], new Array(5).fill(ISSUE), new Array(5).fill(R_CHOICE))
-    const op = unifyColumn(t, 1, AT, 0, new Set(['(株)ヤマト商事', '㈱ヤマト商事']), '株式会社ヤマト商事', 'notation_variant')
+    const op = unifyColumn(t, 1, AT, 0, new Set(['(株)甲野商事', '㈱甲野商事']), '株式会社甲野商事', 'notation_variant')
     if (op === null) throw new Error('op')
     applyOp(t, op)
     revertOp(t, op)
@@ -123,7 +123,7 @@ describe('列の一括置換（表記揺れの統一）', () => {
 
   it('列一括は「人が決めて、列に当てた」と記録される', () => {
     const t = table([COL])
-    const op = unifyColumn(t, 1, AT, 0, new Set(['(株)ヤマト商事']), '株式会社ヤマト商事', 'notation_variant')
+    const op = unifyColumn(t, 1, AT, 0, new Set(['(株)甲野商事']), '株式会社甲野商事', 'notation_variant')
     expect(op?.by.decidedBy).toBe('human')
     expect(op?.by.scope).toBe('column')
     expect(op?.by.column).toBe(0)
@@ -142,12 +142,12 @@ describe('列全体の自動修正', () => {
   })
 
   it('全角の英数字を半角にする', () => {
-    const t = table([['０６-９８７６', 'ヤマト']])
+    const t = table([['０６-９８７６', '甲野']])
     const op = fixColumn(t, 1, AT, 0, 'halfwidth')
     if (op === null) throw new Error('op')
     applyOp(t, op)
     // 日本語は変えない
-    expect(t.columns[0]?.values).toEqual(['06-9876', 'ヤマト'])
+    expect(t.columns[0]?.values).toEqual(['06-9876', '甲野'])
   })
 
   it('直すところが無ければ、操作を作らない', () => {
@@ -261,8 +261,8 @@ describe('添字の対応', () => {
 
 describe('件数は積むときに数える（描画のたびに展開しない）', () => {
   it('列一括でも、件数がすぐ取れる', () => {
-    const t = table([Array.from({ length: 1000 }, () => '(株)ヤマト')])
-    const op = unifyColumn(t, 1, AT, 0, new Set(['(株)ヤマト']), '株式会社ヤマト', 'notation_variant')
+    const t = table([Array.from({ length: 1000 }, () => '(株)甲野')])
+    const op = unifyColumn(t, 1, AT, 0, new Set(['(株)甲野']), '株式会社甲野', 'notation_variant')
     if (op === null) throw new Error('op')
     const state = pushEdit(emptyEditState(), op)
     expect(state.editedCells).toBe(1000)
@@ -325,7 +325,7 @@ describe('再検査（直したセルも、いまの値で判定し直す）', (
   })
 
   it('列を統一すると、表記揺れが消える（集計が減る）', () => {
-    const col = ['株式会社ヤマト商事', '(株)ヤマト商事', '㈱ヤマト商事']
+    const col = ['株式会社甲野商事', '(株)甲野商事', '㈱甲野商事']
     const t = table([col])
     const before = analyze([col], 3)
     expect(before.summary.byCode['notation_variant']).toBe(3)
@@ -335,8 +335,8 @@ describe('再検査（直したセルも、いまの値で判定し直す）', (
       1,
       AT,
       0,
-      new Set(['(株)ヤマト商事', '㈱ヤマト商事']),
-      '株式会社ヤマト商事',
+      new Set(['(株)甲野商事', '㈱甲野商事']),
+      '株式会社甲野商事',
       'notation_variant',
     )
     if (op === null) throw new Error('op')

@@ -103,12 +103,12 @@ describe('三分岐が型で守られている', () => {
     const choice: Remedy = {
       kind: 'choice',
       options: [
-        { value: '株式会社ヤマト商事', occurrences: 12 },
-        { value: '(株)ヤマト商事', occurrences: 3 },
+        { value: '株式会社甲野商事', occurrences: 12 },
+        { value: '(株)甲野商事', occurrences: 3 },
       ],
     }
     // @ts-expect-error 表記揺れの統一先を機械が決めることは、型が許さない
-    expect(() => applyAuto('(株)ヤマト商事', choice)).toBeTruthy()
+    expect(() => applyAuto('(株)甲野商事', choice)).toBeTruthy()
   })
 
   it('none も自動修正へ渡せない', () => {

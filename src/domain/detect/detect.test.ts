@@ -19,19 +19,19 @@ function codesOf(value: string, column: readonly string[]): readonly IssueCode[]
 
 describe('正規化', () => {
   it('法人格の違いを同じキーにする', () => {
-    const keys = ['株式会社ヤマト商事', '(株)ヤマト商事', '㈱ ヤマト商事', '（株）ヤマト商事'].map(
+    const keys = ['株式会社甲野商事', '(株)甲野商事', '㈱ 甲野商事', '（株）甲野商事'].map(
       normalizeKey,
     )
     expect(new Set(keys).size).toBe(1)
   })
 
   it('別会社を同じキーにしない', () => {
-    expect(normalizeKey('株式会社ヤマト商事')).not.toBe(normalizeKey('株式会社ヤマト物産'))
+    expect(normalizeKey('株式会社甲野商事')).not.toBe(normalizeKey('株式会社甲野物産'))
   })
 
   it('全角英数を半角にするが、日本語は変えない', () => {
     expect(toHalfWidth('０６-９８７６')).toBe('06-9876')
-    expect(toHalfWidth('株式会社ヤマト')).toBe('株式会社ヤマト')
+    expect(toHalfWidth('株式会社甲野')).toBe('株式会社甲野')
   })
 })
 
@@ -82,7 +82,7 @@ describe('形の読み取り', () => {
 
 describe('列の見立て（誤検出を抑える要）', () => {
   it('電話番号の列を電話番号と見立てる', () => {
-    const col = ['03-1234-5678', '0312345678', '045-111-2222', '011-333-4444']
+    const col = ['03-1234-5678', '0312345678', '045-000-0000', '011-000-0000']
     expect(analyzeColumn(col).shape).toBe('phone')
   })
 
@@ -105,18 +105,18 @@ describe('列の見立て（誤検出を抑える要）', () => {
 
 describe('余計に検出しないこと', () => {
   it('きれいな値には何も出さない', () => {
-    expect(codesOf('ヤマト商事', ['ヤマト商事', 'さくら物産'])).toEqual([])
+    expect(codesOf('甲野商事', ['甲野商事', '乙川物産'])).toEqual([])
   })
 
   it('表記が1種類しかない列では、表記揺れを出さない', () => {
-    const col = ['株式会社ヤマト商事', '株式会社ヤマト商事', '株式会社さくら物産']
-    expect(codesOf('株式会社ヤマト商事', col)).not.toContain('notation_variant')
+    const col = ['株式会社甲野商事', '株式会社甲野商事', '株式会社乙川物産']
+    expect(codesOf('株式会社甲野商事', col)).not.toContain('notation_variant')
   })
 
   it('法人格を含まない語では、表記揺れを見ない', () => {
     // 一般の語まで見ると、別語を同一視する事故が起きる。
-    const col = ['みどり工業', 'みどり 工業', 'あおぞら商店']
-    expect(codesOf('みどり工業', col)).not.toContain('notation_variant')
+    const col = ['丙山工業', '丙山 工業', '丁田商店']
+    expect(codesOf('丙山工業', col)).not.toContain('notation_variant')
   })
 
   it('数値の列で、前ゼロのない普通の数値は指摘しない', () => {
@@ -144,8 +144,8 @@ describe('検出できること', () => {
   })
 
   it('全角の英数字（自動で直す）', () => {
-    const col = ['06-9876-5432', '０６-９８７６-５４３２', '045-111-2222', '011-333-4444']
-    const issue = detectCell('０６-９８７６-５４３２', analyzeColumn(col)).find(
+    const col = ['06-1234-5678', '０６-１２３４-５６７８', '045-000-0000', '011-000-0000']
+    const issue = detectCell('０６-１２３４-５６７８', analyzeColumn(col)).find(
       (i) => i.code === 'fullwidth_alnum',
     )
     expect(issue?.remedy.kind).toBe('auto')
@@ -153,13 +153,13 @@ describe('検出できること', () => {
 
   it('表記揺れ（人が決める。件数は出すが、寄せ先は決めない）', () => {
     const col = [
-      '株式会社ヤマト商事',
-      '株式会社ヤマト商事',
-      '(株)ヤマト商事',
-      '㈱ヤマト商事',
-      'さくら物産株式会社',
+      '株式会社甲野商事',
+      '株式会社甲野商事',
+      '(株)甲野商事',
+      '㈱甲野商事',
+      '乙川物産株式会社',
     ]
-    const issue = detectCell('(株)ヤマト商事', analyzeColumn(col)).find(
+    const issue = detectCell('(株)甲野商事', analyzeColumn(col)).find(
       (i) => i.code === 'notation_variant',
     )
     expect(issue?.remedy.kind).toBe('choice')
@@ -188,7 +188,7 @@ describe('検出できること', () => {
   })
 
   it('文字化けは検出だけ（直す対象ではない）', () => {
-    const issue = detectCell('��社', analyzeColumn(['��社', 'ヤマト'])).find(
+    const issue = detectCell('��社', analyzeColumn(['��社', '甲野'])).find(
       (i) => i.code === 'mojibake_suspected',
     )
     expect(issue?.remedy.kind).toBe('none')

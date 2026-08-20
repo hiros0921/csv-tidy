@@ -788,3 +788,7 @@ button:disabled {
   font-size: 11px;
   font-style: normal;
 }
+
+.foot__note {
+  margin: 0 0 8px;
+}

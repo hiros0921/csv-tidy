@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>csv-tidy — CSV / Excel クレンジング</title>
+    <!--
+      【重要】アイコンは埋め込む。
+      指定しないとブラウザが /favicon.ico を取りに行き、通信が1件出る。
+      「通信が一切発生しない」という主張が、そこだけで崩れる。
+      data: で埋め込めば、取りに行く先が無い。
+    -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231f4e79'/%3E%3Cpath d='M8 11h16M8 16h16M8 21h9' stroke='%23fff' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E"
+    />
     <meta
       name="description"
       content="CSV・Excel の汚れを見つけて直します。ファイルはサーバーへ送信されません。すべてブラウザの中だけで処理します。"

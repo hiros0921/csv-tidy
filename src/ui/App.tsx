@@ -568,6 +568,10 @@ export function App() {
       </main>
 
       <footer className="foot">
+        {/* 免責は1行だけ。長く書くと、かえって不安にさせる。 */}
+        <p className="foot__note">
+          元のファイルは変更しません。書き出した結果は必ずご確認ください。
+        </p>
         <a href="https://lightech.co.jp/" target="_blank" rel="noreferrer">
           株式会社LIGHTECH
         </a>
