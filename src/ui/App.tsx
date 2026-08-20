@@ -6,6 +6,8 @@ import { IssuePanel } from './IssuePanel.tsx'
 import { HistoryPanel } from './HistoryPanel.tsx'
 import { ExportPanel } from './ExportPanel.tsx'
 import { saveBytes } from './save.ts'
+import type { OfflineState } from './offline.ts'
+import { registerOffline } from './offline.ts'
 import type { Inspect } from './InspectPanel.tsx'
 import { InspectPanel } from './InspectPanel.tsx'
 import type { CharEncoding, Detection } from '../io/encoding.ts'
@@ -72,6 +74,7 @@ export function App() {
   const [editState, setEditState] = useState(emptyEditState())
   /** 前回の検査のあとに直した操作の数。0 でなければ集計が古い。 */
   const [editsSinceCheck, setEditsSinceCheck] = useState(0)
+  const [offline, setOffline] = useState<OfflineState>('unsupported')
   const [lastExport, setLastExport] = useState<{
     readonly bytes: number
     readonly encoding: CharEncoding
@@ -85,6 +88,7 @@ export function App() {
   /** 直したセルの元の値。表示のためだけに持つ。件数は直した数だけ。 */
   const fixedRef = useRef<Map<number, FixedInfo>>(new Map())
   useEffect(() => () => sessionRef.current?.cancel(), [])
+  useEffect(() => registerOffline(setOffline), [])
 
   const mutable = useMemo<MutableTable | null>(() => {
     if (table === null || values === null) return null
@@ -376,8 +380,14 @@ export function App() {
         </div>
         {/* 仕様書2章：画面に常時表示すること */}
         <div className="privacy" role="status">
-          <strong>ファイルは送信されません。</strong>
-          すべてブラウザの中だけで処理します。ブラウザにも保存しません（タブを閉じると消えます）。
+          <strong>データの送信は一切ありません。</strong>
+          読み込んだファイルは、すべてブラウザの中だけで処理します。
+          どこにも送りませんし、ブラウザにも残しません（タブを閉じると消えます）。
+          {offline === 'ready' && (
+            <span className="privacy__offline">
+              ネットワークを切っても、そのまま使えます。
+            </span>
+          )}
         </div>
       </header>
 

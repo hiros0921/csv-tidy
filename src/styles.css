@@ -792,3 +792,10 @@ button:disabled {
 .foot__note {
   margin: 0 0 8px;
 }
+
+.privacy__offline {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}

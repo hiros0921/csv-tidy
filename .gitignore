@@ -6,3 +6,10 @@ dist/
 # 計測用の大きなファイル。生成できるものは置かない。
 # 作り直し: npm run fixtures
 testdata/large/
+
+# 【重要】書き出したファイルが、この場所に落ちてくることがある。
+# 業務データが public リポジトリに紛れ込むのを、仕組みで防ぐ。
+# 検証用の testdata/ は対象外（/ 始まりは直下だけに効く）。
+/*.csv
+*_tidy.csv
+*_changes.csv

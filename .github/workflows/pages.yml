@@ -33,6 +33,9 @@ jobs:
       - run: npm run build
         env:
           GITHUB_PAGES: '1'
+      # オフラインの一覧に取りこぼしが無いか。チャンクが増えて
+      # 一覧から漏れると、オフラインのときだけ黙って壊れる。
+      - run: node scripts/check-offline.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
