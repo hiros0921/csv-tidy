@@ -46,6 +46,8 @@ export function EncodingBar({ detection, onChange, busy }: Props) {
     <div className="encbar">
       <span className="encbar__label">文字コード</span>
       <select
+        id="read-encoding"
+        name="read-encoding"
         value={detection.encoding}
         disabled={busy}
         onChange={(e) => onChange(e.target.value as CharEncoding)}

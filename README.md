@@ -29,15 +29,18 @@ React 19 + TypeScript（`strict`）/ Vite / Web Worker。サーバーはあり�
 | favicon の要求 | **0件** |
 | Cookie / localStorage / sessionStorage / IndexedDB | すべて空 |
 
-2回目以降は、**転送そのものが 0 バイト**になります。開発者ツールの実測です。
+2回目以降は、**ネットワークを切っても、転送 0 バイトで最後まで動きます。**
+開発者ツールの Network を **Offline** にして測った結果です。
 
 ```
-5 requests   0 B transferred   1.1 MB resources
-  localhost                    200  document    (ServiceWorker)
-  index-D0RnoWlt.js            200  script      (ServiceWorker)
-  index-DNHjkd5W.css           200  stylesheet  (ServiceWorker)
-  analyze.worker-Bf0B1UrQ.js   200  script      (ServiceWorker)
-  xlsx-Dzq1sfI1.js             200  script      (ServiceWorker)
+Offline                    5 requests   0 B transferred   1.1 MB resources
+  localhost                200  document    (ServiceWorker)
+  index-BmU7mgkW.js        200  script      (ServiceWorker)
+  index-DNHjkd5W.css       200  stylesheet  (ServiceWorker)
+  analyze.worker-….js      200  script      (ServiceWorker)
+  xlsx-….js                200  script      (ServiceWorker)
+
+Issues: No issues detected
 ```
 
 `1.1 MB resources` を読み込みながら `0 B transferred` です。

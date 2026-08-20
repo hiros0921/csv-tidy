@@ -55,7 +55,12 @@ export function ExportPanel({
       <div className="export">
         <label>
           文字コード
-          <select value={encoding} onChange={(e) => setEncoding(e.target.value as CharEncoding)}>
+          <select
+            id="write-encoding"
+            name="write-encoding"
+            value={encoding}
+            onChange={(e) => setEncoding(e.target.value as CharEncoding)}
+          >
             {WRITE_ENCODINGS.map((enc) => (
               <option key={enc} value={enc}>
                 {ENCODING_LABEL[enc]}
@@ -67,7 +72,12 @@ export function ExportPanel({
 
         <label>
           改行
-          <select value={newline} onChange={(e) => setNewline(e.target.value as Newline)}>
+          <select
+            id="write-newline"
+            name="write-newline"
+            value={newline}
+            onChange={(e) => setNewline(e.target.value as Newline)}
+          >
             <option value="crlf">CRLF（Excel 向け）</option>
             <option value="lf">LF</option>
           </select>

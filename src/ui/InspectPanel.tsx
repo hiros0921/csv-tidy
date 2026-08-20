@@ -166,6 +166,8 @@ export function InspectPanel({ inspect, onAutoFix, onColumnFix, onChoose, onUnif
         <label>
           このセルを直接書き換える
           <input
+            id="cell-value"
+            name="cell-value"
             type="text"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}

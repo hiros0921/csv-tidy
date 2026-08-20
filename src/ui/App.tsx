@@ -456,6 +456,8 @@ export function App() {
             <div className="opts">
               <label>
                 <input
+                  id="header-mode"
+                  name="header-mode"
                   type="checkbox"
                   checked={headerMode === 'first-row'}
                   onChange={(e) => onHeaderModeChange(e.target.checked ? 'first-row' : 'generated')}

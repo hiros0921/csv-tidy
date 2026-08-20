@@ -35,6 +35,8 @@ export function DropZone({ onFile, disabled }: Props) {
       <p className="drop__sub">クリックして選ぶこともできます（.csv .tsv .txt .xlsx .xls）</p>
       <input
         ref={inputRef}
+        id="file-input"
+        name="file"
         type="file"
         accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls"
         hidden
