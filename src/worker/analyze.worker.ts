@@ -49,7 +49,13 @@ export type WorkerResponse =
   | {
       readonly kind: 'loaded'
       readonly header: readonly string[]
-      readonly columns: readonly (readonly string[])[]
+      /**
+       * 【重要】ここだけ readonly を外してある。
+       * 転送した時点で持ち主はメイン側に移り、以降そちらが書き換える。
+       * readonly のまま渡すと、受け取った側が as で外すことになる。
+       * それなら「渡した先が書き換える」と型で言ったほうが正直である。
+       */
+      readonly columns: string[][]
       readonly rowCount: number
       readonly detection: Detection | null
       readonly timings: LoadTimings

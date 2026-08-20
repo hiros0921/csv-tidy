@@ -15,6 +15,14 @@ import type { Progress, Summary } from '../domain/detect/index.ts'
 
 export type LoadedPart = {
   readonly table: Table
+  /**
+   * 書き換えられる値の実体。table.columns[c].values と同じ配列を指す。
+   *
+   * 【重要】コピーではなく同じ実体である。ここを書き換えると表に映る。
+   * 10万行ぶんの配列をコピーしないための割り切りで、
+   * 書き換えてよい入口をここ1か所に限っている。
+   */
+  readonly values: string[][]
   readonly detection: Detection | null
   readonly loadMs: number
   readonly detail: { readonly detectMs: number; readonly decodeMs: number; readonly parseMs: number; readonly pivotMs: number }
@@ -100,8 +108,11 @@ export function startAnalyze(
     const msg = event.data
     switch (msg.kind) {
       case 'loaded': {
+        // 同じ配列を、読む側（Table）と書き換える側（values）の両方に渡す。
+        // ここでコピーしない。100万セルの配列を写すと、そこで実体化が起きる。
+        const values: string[][] = msg.header.map((_, c) => msg.columns[c] ?? [])
         const table: Table = {
-          columns: msg.header.map((name, c) => ({ name, values: msg.columns[c] ?? [] })),
+          columns: msg.header.map((name, c) => ({ name, values: values[c] ?? [] })),
           rowCount: msg.rowCount,
           // 検出前は全セル未検査。Uint8Array は 0 で初期化される。
           flags: new Uint8Array(msg.header.length * msg.rowCount),
@@ -109,6 +120,7 @@ export function startAnalyze(
         }
         handlers.onLoaded({
           table,
+          values,
           detection: msg.detection,
           loadMs: performance.now() - started,
           detail: msg.timings,

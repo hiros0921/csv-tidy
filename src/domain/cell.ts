@@ -39,11 +39,23 @@ export const R_AUTO = 1 // 自動で直せる
 export const R_CHOICE = 2 // 人が決める
 export const R_DETECT = 3 // 検出だけ
 
-/** 誰が直したか。7章「自動で直したものと人が直したものを区別すること」。 */
-export type FixSource =
-  | { readonly kind: 'auto' }
-  | { readonly kind: 'manual' }
-  | { readonly kind: 'bulk'; readonly column: number }
+/**
+ * どう直したか。仕様書7章「自動で直したものと、人が直したものを区別すること」。
+ *
+ * 【重要】2つの軸を分けてある。混ぜると答えられない問いが出る。
+ *   decidedBy … その値を決めたのは機械か人か
+ *   scope     … 1セルか、列全体か
+ *
+ * 「列全体を機械が直した」（前後の空白をまとめて取る）も、
+ * 「1セルを人が直した」もあるので、1つの軸では表せない。
+ * 監査で問われるのは decidedBy のほうである。
+ */
+export type FixSource = {
+  readonly decidedBy: 'machine' | 'human'
+  readonly scope: 'cell' | 'column'
+  /** scope が column のときの列番号。cell のときは null。 */
+  readonly column: number | null
+}
 
 /**
  * セルの状態。境界（画面に出すとき）で組み立てる。

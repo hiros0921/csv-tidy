@@ -1,16 +1,34 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DropZone } from './DropZone.tsx'
 import { EncodingBar } from './EncodingBar.tsx'
 import { Grid } from './Grid.tsx'
 import { IssuePanel } from './IssuePanel.tsx'
+import { HistoryPanel } from './HistoryPanel.tsx'
+import type { Inspect } from './InspectPanel.tsx'
+import { InspectPanel } from './InspectPanel.tsx'
 import type { CharEncoding, Detection } from '../io/encoding.ts'
 import type { HeaderMode } from '../io/parse.ts'
-import type { AnalyzedPart, LoadedPart } from '../io/analyzeClient.ts'
-import type { Session } from '../io/analyzeClient.ts'
+import type { AnalyzedPart, LoadedPart, Session } from '../io/analyzeClient.ts'
 import { SIZE_WARN_BYTES, kindOf, startAnalyze } from '../io/analyzeClient.ts'
 import type { Progress } from '../domain/detect/index.ts'
 import type { Table } from '../domain/table.ts'
-import type { Issue } from '../domain/issue.ts'
+import type { FixSource } from '../domain/cell.ts'
+import { FIXED, cellIndex } from '../domain/cell.ts'
+import type { Issue, IssueCode } from '../domain/issue.ts'
+import type { ColumnFix, EditOp, MutableTable } from '../domain/edit.ts'
+import {
+  UNDO_LIMIT,
+  applyAutoFix,
+  applyChoice,
+  applyOp,
+  editCell,
+  emptyEditState,
+  fixColumn,
+  popUndo,
+  pushEdit,
+  revertOp,
+  unifyColumn,
+} from '../domain/edit.ts'
 
 function mb(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
@@ -24,23 +42,13 @@ const PHASE_LABEL: Readonly<Record<Progress['phase'], string>> = {
 
 const EMPTY_ROW_ISSUES: ReadonlyMap<number, Issue> = new Map()
 
-const REMEDY_LABEL = {
-  auto: '自動で直せる',
-  choice: '人が決める',
-  none: '検出だけ',
-} as const
-
-type Inspect = {
-  readonly row: number
-  readonly colName: string
-  readonly value: string
-  readonly issues: readonly Issue[]
-  readonly rowIssue: Issue | null
-}
+/** 直したセルの、元の値と決めた人。取り消すと消える。 */
+type FixedInfo = { readonly original: string; readonly by: FixSource }
 
 export function App() {
   const [file, setFile] = useState<File | null>(null)
   const [table, setTable] = useState<Table | null>(null)
+  const [values, setValues] = useState<string[][] | null>(null)
   const [detection, setDetection] = useState<Detection | null>(null)
   const [loaded, setLoaded] = useState<LoadedPart | null>(null)
   const [analyzed, setAnalyzed] = useState<AnalyzedPart | null>(null)
@@ -50,10 +58,22 @@ export function App() {
   const [headerMode, setHeaderMode] = useState<HeaderMode>('first-row')
   const [oversized, setOversized] = useState<File | null>(null)
   const [inspect, setInspect] = useState<Inspect | null>(null)
+  const [editState, setEditState] = useState(emptyEditState())
 
-  /** 走っている Worker を止めるための取っ手。読み直すときに前のを捨てる。 */
   const sessionRef = useRef<Session | null>(null)
+  /** 直したセルの元の値。表示のためだけに持つ。件数は直した数だけ。 */
+  const fixedRef = useRef<Map<number, FixedInfo>>(new Map())
   useEffect(() => () => sessionRef.current?.cancel(), [])
+
+  const mutable = useMemo<MutableTable | null>(() => {
+    if (table === null || values === null) return null
+    return {
+      columns: table.columns.map((c, i) => ({ name: c.name, values: values[i] ?? [] })),
+      rowCount: table.rowCount,
+      flags: table.flags,
+      remedy: analyzed?.remedy ?? null,
+    }
+  }, [table, values, analyzed])
 
   const run = useCallback((target: File, mode: HeaderMode, override?: CharEncoding) => {
     sessionRef.current?.cancel()
@@ -61,6 +81,9 @@ export function App() {
     setError(null)
     setAnalyzed(null)
     setProgress(null)
+    setInspect(null)
+    setEditState(emptyEditState())
+    fixedRef.current = new Map()
     setFile(target)
 
     sessionRef.current = startAnalyze(
@@ -68,8 +91,8 @@ export function App() {
       override === undefined ? { headerMode: mode } : { headerMode: mode, encodingOverride: override },
       {
         onLoaded: (part) => {
-          // 表は先に出す。検出を待たせない。
           setTable(part.table)
+          setValues(part.values)
           setDetection(part.detection)
           setLoaded(part)
         },
@@ -78,7 +101,6 @@ export function App() {
           setAnalyzed(part)
           setProgress(null)
           setBusy(false)
-          // 色分けに要るものだけ、先に反映する。flags も remedy も転送済み（コピーなし）。
           setTable((prev) => (prev === null ? prev : { ...prev, flags: part.flags }))
         },
         onFailed: (message) => {
@@ -107,7 +129,6 @@ export function App() {
 
   const onEncodingChange = useCallback(
     (encoding: CharEncoding) => {
-      // 復号済みの文字列からは戻せない。元の File から読み直す。
       if (file !== null) run(file, headerMode, encoding)
     },
     [file, run, headerMode],
@@ -121,28 +142,119 @@ export function App() {
     [file, run, detection],
   )
 
+  // ---------------------------------------------------------------- 修正
+
+  /** 操作を1つ適用して、履歴に積む。値が変わらない操作は何もしない。 */
+  const commit = useCallback(
+    (op: EditOp | null) => {
+      if (op === null || mutable === null) return
+      applyOp(mutable, op)
+      for (const ch of op.changes) {
+        const index = cellIndex(ch.col, ch.row, mutable.rowCount)
+        // すでに直したセルを直し直したときは、いちばん最初の値を残す。
+        const known = fixedRef.current.get(index)
+        fixedRef.current.set(index, { original: known?.original ?? ch.before, by: op.by })
+      }
+      // 【重要】値の配列は書き換えても参照が変わらないので、React 単体では
+      // 変化に気づけない。ここで editState が新しくなることが、そのまま
+      // 「描き直して」の合図になっている。10万行の配列を作り直す必要はない。
+      setEditState((s) => pushEdit(s, op))
+      setInspect(null)
+    },
+    [mutable],
+  )
+
+  const undo = useCallback(() => {
+    if (mutable === null) return
+    const popped = popUndo(editState, new Date().toISOString())
+    if (popped === null) return
+    revertOp(mutable, popped.op)
+    for (const ch of popped.op.changes) {
+      fixedRef.current.delete(cellIndex(ch.col, ch.row, mutable.rowCount))
+    }
+    setEditState(popped.state)
+    setInspect(null)
+  }, [mutable, editState])
+
+  const now = (): string => new Date().toISOString()
+
+  const onAutoFix = useCallback(
+    (row: number, col: number, issue: Issue) => {
+      if (mutable === null || issue.remedy.kind !== 'auto') return
+      // 【重要】auto であることを絞ってから渡す。applyAutoFix は auto しか受け取らない。
+      commit(applyAutoFix(mutable, editState.nextSeq, now(), row, col, { ...issue, remedy: issue.remedy }))
+    },
+    [mutable, editState.nextSeq, commit],
+  )
+
+  const onColumnFix = useCallback(
+    (col: number, kind: ColumnFix) => {
+      if (mutable === null) return
+      commit(fixColumn(mutable, editState.nextSeq, now(), col, kind))
+    },
+    [mutable, editState.nextSeq, commit],
+  )
+
+  const onChoose = useCallback(
+    (row: number, col: number, code: IssueCode, value: string) => {
+      if (mutable === null) return
+      commit(applyChoice(mutable, editState.nextSeq, now(), row, col, code, value))
+    },
+    [mutable, editState.nextSeq, commit],
+  )
+
+  const onUnify = useCallback(
+    (col: number, from: readonly string[], to: string, code: IssueCode) => {
+      if (mutable === null) return
+      commit(unifyColumn(mutable, editState.nextSeq, now(), col, new Set(from), to, code))
+    },
+    [mutable, editState.nextSeq, commit],
+  )
+
+  const onEdit = useCallback(
+    (row: number, col: number, value: string) => {
+      if (mutable === null) return
+      commit(editCell(mutable, editState.nextSeq, now(), row, col, value))
+    },
+    [mutable, editState.nextSeq, commit],
+  )
+
+  // ---------------------------------------------------------------- 表示
+
   const onHover = useCallback(
     (index: number, row: number, col: number, value: string) => {
       const colName = table?.columns[col]?.name ?? ''
       const rowIssue = analyzed?.rowIssues.get(row) ?? null
+      const fixed = fixedRef.current.get(index) ?? null
+      const base: Inspect = {
+        index,
+        row,
+        col,
+        colName,
+        value,
+        issues: [],
+        rowIssue,
+        fixed,
+        analyzed: analyzed !== null,
+      }
       const ask = analyzed?.askDetail
-      if (ask === undefined) {
-        setInspect({ row, colName, value, issues: [], rowIssue })
+      // 直したセルの説明は、Worker が持っている「直す前」のものなので聞かない。
+      if (ask === undefined || table?.flags[index] === FIXED) {
+        setInspect(base)
         return
       }
       void ask(index).then((detail) => {
-        const issues =
-          detail === null ? [] : detail.kind === 'issue' ? detail.issues : detail.resolved
-        setInspect({ row, colName, value, issues, rowIssue })
+        const issues = detail === null ? [] : detail.kind === 'issue' ? detail.issues : detail.resolved
+        setInspect({ ...base, issues })
       })
     },
     [table, analyzed],
   )
 
   const pct =
-    progress === null || progress.total === 0
-      ? 0
-      : Math.round((progress.done / progress.total) * 100)
+    progress === null || progress.total === 0 ? 0 : Math.round((progress.done / progress.total) * 100)
+
+  const columnNames = table?.columns.map((c) => c.name) ?? []
 
   return (
     <div className="app">
@@ -210,18 +322,32 @@ export function App() {
                 <input
                   type="checkbox"
                   checked={headerMode === 'first-row'}
-                  onChange={(e) =>
-                    onHeaderModeChange(e.target.checked ? 'first-row' : 'generated')
-                  }
+                  onChange={(e) => onHeaderModeChange(e.target.checked ? 'first-row' : 'generated')}
                 />
                 1行目を見出しとして扱う
               </label>
+
+              <span className="opts__gap" />
+
+              <button type="button" onClick={undo} disabled={editState.undoStack.length === 0}>
+                元に戻す
+              </button>
+              <span className="opts__note">
+                戻せる操作 {editState.undoStack.length} / {UNDO_LIMIT}
+                {editState.droppedFromUndo > 0 && (
+                  <strong className="opts__dropped">
+                    （{editState.droppedFromUndo} 操作は上限を超えたため戻せません）
+                  </strong>
+                )}
+              </span>
             </div>
 
             <dl className="stats">
               <div>
                 <dt>ファイル</dt>
-                <dd>{file?.name ?? ''}（{mb(file?.size ?? 0)}）</dd>
+                <dd>
+                  {file?.name ?? ''}（{mb(file?.size ?? 0)}）
+                </dd>
               </div>
               <div>
                 <dt>行 × 列</dt>
@@ -234,10 +360,9 @@ export function App() {
                 <dd>
                   {loaded.loadMs.toFixed(0)} ms
                   <span className="stats__note">
-                    判定 {loaded.detail.detectMs.toFixed(0)} / 復号{' '}
-                    {loaded.detail.decodeMs.toFixed(0)} / パース{' '}
-                    {loaded.detail.parseMs.toFixed(0)} / 列に組替{' '}
-                    {loaded.detail.pivotMs.toFixed(0)} ms（すべて別スレッド）
+                    判定 {loaded.detail.detectMs.toFixed(0)} / 復号 {loaded.detail.decodeMs.toFixed(0)} /
+                    パース {loaded.detail.parseMs.toFixed(0)} / 列に組替 {loaded.detail.pivotMs.toFixed(0)} ms
+                    （すべて別スレッド）
                   </span>
                 </dd>
               </div>
@@ -255,10 +380,15 @@ export function App() {
             </dl>
 
             {analyzed !== null && (
-              <IssuePanel
-                summary={analyzed.summary}
-                columnNames={table.columns.map((c) => c.name)}
-              />
+              <IssuePanel summary={analyzed.summary} columnNames={columnNames} />
+            )}
+
+            {editState.log.length > 0 && (
+              <p className="warnline">
+                下の集計は<strong>検出したときのもの</strong>です。
+                いま直したぶんは反映されていません（もう一度調べ直す機能は入れていません）。
+                直した箇所は、表の中で緑になります。
+              </p>
             )}
 
             <div className="legend">
@@ -278,6 +408,9 @@ export function App() {
                 <i className="sw sw--none" />検出だけ
               </span>
               <span className="legend__item">
+                <i className="sw sw--fixed" />直した
+              </span>
+              <span className="legend__item">
                 <i className="sw sw--dup" />重複行（行番号に印）
               </span>
             </div>
@@ -289,59 +422,16 @@ export function App() {
               onHover={onHover}
             />
 
-            <div className="inspect">
-              {inspect === null ? (
-                <span className="inspect__idle">
-                  セルにカーソルを合わせると、そのセルで見つかったことが出ます。
-                </span>
-              ) : (
-                <>
-                  <div className="inspect__head">
-                    {inspect.row + 1} 行目・{inspect.colName}
-                    <span className="inspect__val">{inspect.value === '' ? '（空欄）' : inspect.value}</span>
-                  </div>
-                  {inspect.issues.length === 0 && inspect.rowIssue === null && (
-                    <div className="inspect__ok">
-                      {analyzed === null ? 'まだ調べていません' : '問題は見つかりませんでした'}
-                    </div>
-                  )}
-                  {inspect.issues.map((issue, i) => (
-                    <div key={i} className={`inspect__row inspect__row--${issue.remedy.kind}`}>
-                      <span className="inspect__tag">{REMEDY_LABEL[issue.remedy.kind]}</span>
-                      <span>{issue.note}</span>
-                      {issue.remedy.kind === 'choice' && (
-                        <span className="inspect__opts">
-                          {issue.remedy.options.map((o, j) => (
-                            <span key={j} className="inspect__opt">
-                              {o.value}
-                              {o.occurrences > 0 && (
-                                <em className="inspect__cnt">{o.occurrences.toLocaleString()}件</em>
-                              )}
-                            </span>
-                          ))}
-                        </span>
-                      )}
-                      {issue.remedy.kind === 'auto' && (
-                        <span className="inspect__opts">
-                          <span className="inspect__opt">→ {issue.remedy.to}</span>
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                  {inspect.rowIssue !== null && (
-                    <div className="inspect__row inspect__row--choice">
-                      <span className="inspect__tag">人が決める</span>
-                      <span>{inspect.rowIssue.note}</span>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
+            <InspectPanel
+              inspect={inspect}
+              onAutoFix={onAutoFix}
+              onColumnFix={onColumnFix}
+              onChoose={onChoose}
+              onUnify={onUnify}
+              onEdit={onEdit}
+            />
 
-            <p className="gridnote">
-              全 {table.rowCount.toLocaleString()} 行のうち、実際に DOM
-              に載っているのは表示範囲のぶんだけです。行数を10倍にしても DOM の数は変わりません。
-            </p>
+            <HistoryPanel state={editState} columnNames={columnNames} />
           </>
         )}
       </main>

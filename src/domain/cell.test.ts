@@ -81,7 +81,7 @@ describe('格納は列指向、型は境界で作る', () => {
     const detail: CellDetail = {
       kind: 'fixed',
       original: '山田 ',
-      by: { kind: 'auto' },
+      by: { decidedBy: 'machine', scope: 'cell', column: null },
       resolved: [anIssue],
       remaining: [],
     }
@@ -89,7 +89,7 @@ describe('格納は列指向、型は境界で作る', () => {
     expect(state.kind).toBe('fixed')
     if (state.kind === 'fixed') {
       expect(state.original).toBe('山田 ')
-      expect(state.by.kind).toBe('auto')
+      expect(state.by.decidedBy).toBe('machine')
     }
   })
 })
