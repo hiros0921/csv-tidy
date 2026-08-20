@@ -22,6 +22,8 @@ import type { CellDetail } from '../domain/cell.ts'
 import type { Issue } from '../domain/issue.ts'
 import type { Progress, Summary } from '../domain/detect/index.ts'
 import { analyze } from '../domain/detect/index.ts'
+import type { CsvOptions, Unmappable } from '../io/write.ts'
+import { buildCsv, encodeCsv, findUnmappable } from '../io/write.ts'
 
 export type FileKind = 'csv' | 'xlsx'
 
@@ -49,7 +51,22 @@ export type RecheckRequest = {
   readonly rowCount: number
 }
 
-export type WorkerRequest = LoadRequest | AskRequest | RecheckRequest
+/**
+ * いまの値を CSV にして返す。
+ *
+ * 【なぜ Worker でやるか】実測で10万行 × 10列のとき、
+ * CSV 文字列の組み立て 35ms、Shift-JIS への変換 306ms。
+ * メインでやると 340ms 止まる。バイト列は Transferable なので戻りはゼロコピー。
+ */
+export type ExportRequest = {
+  readonly kind: 'export'
+  readonly columns: string[][]
+  readonly rowCount: number
+  readonly encoding: CharEncoding
+  readonly options: CsvOptions
+}
+
+export type WorkerRequest = LoadRequest | AskRequest | RecheckRequest | ExportRequest
 
 export type LoadTimings = {
   readonly detectMs: number
@@ -83,6 +100,14 @@ export type WorkerResponse =
       readonly analyzeMs: number
     }
   | { readonly kind: 'detail'; readonly index: number; readonly detail: CellDetail | null }
+  | {
+      readonly kind: 'exported'
+      readonly bytes: Uint8Array<ArrayBuffer>
+      /** その文字コードで書けなかった文字。空なら、失われたものはない。 */
+      readonly unmappable: readonly Unmappable[]
+      readonly buildMs: number
+      readonly encodeMs: number
+    }
   | { readonly kind: 'failed'; readonly message: string }
 
 /**
@@ -116,6 +141,9 @@ ctx.onmessage = (event: MessageEvent<WorkerRequest>) => {
       return
     case 'recheck':
       recheck(req)
+      return
+    case 'export':
+      exportCsv(req)
       return
     case 'load':
       void run(req)
@@ -229,6 +257,26 @@ async function run(req: LoadRequest): Promise<void> {
       },
       // Uint8Array は Transferable。ここはコピーせずに渡る。
       [result.flags.buffer, result.remedy.buffer],
+    )
+  } catch (e) {
+    post({ kind: 'failed', message: e instanceof Error ? e.message : String(e) })
+  }
+}
+
+/** いまの値を CSV にして、バイト列で返す。元のファイルには触らない。 */
+function exportCsv(req: ExportRequest): void {
+  try {
+    const t0 = performance.now()
+    const text = buildCsv(req.columns, req.rowCount, req.options)
+    const t1 = performance.now()
+    // 【重要】書けない文字を、書く前に数える。黙って ? にしない。
+    const unmappable = findUnmappable(text, req.encoding)
+    const bytes = encodeCsv(text, req.encoding)
+    const t2 = performance.now()
+    req.columns.length = 0
+    post(
+      { kind: 'exported', bytes, unmappable, buildMs: t1 - t0, encodeMs: t2 - t1 },
+      [bytes.buffer],
     )
   } catch (e) {
     post({ kind: 'failed', message: e instanceof Error ? e.message : String(e) })

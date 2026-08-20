@@ -12,6 +12,7 @@ import type { Table } from '../domain/table.ts'
 import type { CellDetail } from '../domain/cell.ts'
 import type { Issue } from '../domain/issue.ts'
 import type { Progress, Summary } from '../domain/detect/index.ts'
+import type { CsvOptions, Unmappable } from './write.ts'
 
 export type LoadedPart = {
   readonly table: Table
@@ -72,6 +73,25 @@ export type Session = {
    * 結果は onProgress → onAnalyzed で、最初の検出と同じ道筋で返る。
    */
   readonly recheck: (columns: readonly string[][], rowCount: number) => void
+  /**
+   * いまの値を CSV にして受け取る。元のファイルには触らない。
+   *
+   * 組み立てと符号化は Worker でやる（実測で Shift-JIS は 306ms かかる）。
+   * バイト列は Transferable なので、戻りはコピーなし。
+   */
+  readonly exportCsv: (
+    columns: readonly string[][],
+    rowCount: number,
+    encoding: CharEncoding,
+    options: CsvOptions,
+  ) => Promise<ExportResult | null>
+}
+
+export type ExportResult = {
+  readonly bytes: Uint8Array<ArrayBuffer>
+  readonly unmappable: readonly Unmappable[]
+  readonly buildMs: number
+  readonly encodeMs: number
 }
 
 /**
@@ -89,7 +109,7 @@ export function startAnalyze(
   const fileKind = kindOf(file.name)
   if (fileKind === null) {
     handlers.onFailed(`対応していない拡張子です: ${file.name}`)
-    return { cancel: () => {}, recheck: () => {} }
+    return { cancel: () => {}, recheck: () => {}, exportCsv: async () => null }
   }
 
   const worker = new Worker(new URL('../worker/analyze.worker.ts', import.meta.url), {
@@ -99,6 +119,8 @@ export function startAnalyze(
   const started = performance.now()
   /** 聞いた説明文の返事を待っている人たち。index ごとに1つ。 */
   const waiting = new Map<number, (detail: CellDetail | null) => void>()
+  /** 書き出しの返事を待っている人。一度に1つだけ。 */
+  let waitingExport: ((result: ExportResult | null) => void) | null = null
 
   const askDetail = (index: number): Promise<CellDetail | null> =>
     new Promise((resolve) => {
@@ -158,7 +180,20 @@ export function startAnalyze(
         }
         break
       }
+      case 'exported': {
+        const resolve = waitingExport
+        waitingExport = null
+        resolve?.({
+          bytes: msg.bytes,
+          unmappable: msg.unmappable,
+          buildMs: msg.buildMs,
+          encodeMs: msg.encodeMs,
+        })
+        break
+      }
       case 'failed':
+        waitingExport?.(null)
+        waitingExport = null
         handlers.onFailed(msg.message)
         worker.terminate()
         break
@@ -191,8 +226,19 @@ export function startAnalyze(
       alive = false
       for (const resolve of waiting.values()) resolve(null)
       waiting.clear()
+      waitingExport?.(null)
+      waitingExport = null
       worker.terminate()
     },
+    exportCsv: (columns, rowCount, encoding, options) =>
+      new Promise<ExportResult | null>((resolve) => {
+        if (!alive) {
+          resolve(null)
+          return
+        }
+        waitingExport = resolve
+        worker.postMessage({ kind: 'export', columns, rowCount, encoding, options })
+      }),
     recheck: (columns, rowCount) => {
       if (!alive) return
       // 値の配列を渡す。送る側（メイン）が一度だけ止まるが、

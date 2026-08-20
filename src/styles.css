@@ -730,3 +730,61 @@ button:disabled {
 .warnline .btn--call {
   margin-left: 10px;
 }
+
+/* ---- 書き出し ---- */
+.export {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin: 10px 0;
+}
+
+.export label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.export__note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.export__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.export__done {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-left: 3px solid #6aa96a;
+  background: #eef7ee;
+  font-size: 13px;
+}
+
+.export__chars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.export__char {
+  padding: 1px 8px;
+  border: 1px solid var(--warn-line);
+  border-radius: 3px;
+  background: #fff;
+}
+
+.export__char em {
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+}

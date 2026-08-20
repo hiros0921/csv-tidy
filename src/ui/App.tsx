@@ -4,6 +4,8 @@ import { EncodingBar } from './EncodingBar.tsx'
 import { Grid } from './Grid.tsx'
 import { IssuePanel } from './IssuePanel.tsx'
 import { HistoryPanel } from './HistoryPanel.tsx'
+import { ExportPanel } from './ExportPanel.tsx'
+import { saveBytes } from './save.ts'
 import type { Inspect } from './InspectPanel.tsx'
 import { InspectPanel } from './InspectPanel.tsx'
 import type { CharEncoding, Detection } from '../io/encoding.ts'
@@ -11,6 +13,9 @@ import type { HeaderMode } from '../io/parse.ts'
 import type { AnalyzedPart, LoadedPart, Session } from '../io/analyzeClient.ts'
 import { SIZE_WARN_BYTES, kindOf, startAnalyze } from '../io/analyzeClient.ts'
 import type { Progress } from '../domain/detect/index.ts'
+import type { Newline, Unmappable } from '../io/write.ts'
+import { buildCsv, encodeCsv, outputName } from '../io/write.ts'
+import { historyRows } from '../domain/edit.ts'
 import type { Table } from '../domain/table.ts'
 import type { FixSource } from '../domain/cell.ts'
 import { CLEAN, FIXED, cellIndex } from '../domain/cell.ts'
@@ -67,6 +72,12 @@ export function App() {
   const [editState, setEditState] = useState(emptyEditState())
   /** 前回の検査のあとに直した操作の数。0 でなければ集計が古い。 */
   const [editsSinceCheck, setEditsSinceCheck] = useState(0)
+  const [lastExport, setLastExport] = useState<{
+    readonly bytes: number
+    readonly encoding: CharEncoding
+    readonly unmappable: readonly Unmappable[]
+    readonly ms: number
+  } | null>(null)
 
   const sessionRef = useRef<Session | null>(null)
   /** 何回目の検査か。1回目の検出が 1。再検査のたびに増える。 */
@@ -94,6 +105,7 @@ export function App() {
     setInspect(null)
     setEditState(emptyEditState())
     setEditsSinceCheck(0)
+    setLastExport(null)
     fixedRef.current = new Map()
     genRef.current = 0
     setFile(target)
@@ -202,6 +214,68 @@ export function App() {
     setEditsSinceCheck((n) => n + 1)
     setInspect(null)
   }, [mutable, editState])
+
+  /** 直したデータを CSV で書き出す。元のファイルには触らない。 */
+  const onExport = useCallback(
+    (encoding: CharEncoding, newline: Newline) => {
+      if (values === null || table === null || file === null) return
+      setBusy(true)
+      const t0 = performance.now()
+      void sessionRef.current
+        ?.exportCsv(values, table.rowCount, encoding, {
+          header: table.columns.map((c) => c.name),
+          // 1行目を見出しとして読んだときだけ、見出しの行を書く。
+          // 「列1, 列2…」を書き足すと、元に無かった行が増える。
+          writeHeader: headerMode === 'first-row',
+          newline,
+        })
+        .then((result) => {
+          setBusy(false)
+          if (result === null) return
+          saveBytes(result.bytes, outputName(file.name, '_tidy'))
+          setLastExport({
+            bytes: result.bytes.length,
+            encoding,
+            unmappable: result.unmappable,
+            ms: performance.now() - t0,
+          })
+        })
+    },
+    [values, table, file, headerMode],
+  )
+
+  /**
+   * 変更履歴を書き出す。
+   *
+   * 【重要】こちらは Worker へ回さない。履歴は操作の数だけで、
+   * 表そのものより桁が小さい。ここで全件を開くのは、書き出すときだけ。
+   */
+  const onExportHistory = useCallback(
+    (encoding: CharEncoding) => {
+      if (file === null || table === null) return
+      const rows = historyRows(editState, table.columns.map((c) => c.name))
+      const header = ['通番', '日時', '操作', '決めたのは', '範囲', '行', '列', '前', '後', '種別']
+      const columns: string[][] = header.map(() => [])
+      for (const r of rows) {
+        const cells = [
+          String(r.seq),
+          r.at,
+          r.action,
+          r.decidedBy,
+          r.scope,
+          String(r.row),
+          r.columnName,
+          r.before,
+          r.after,
+          r.issue,
+        ]
+        cells.forEach((v, i) => columns[i]?.push(v))
+      }
+      const csv = buildCsv(columns, rows.length, { header, writeHeader: true, newline: 'crlf' })
+      saveBytes(encodeCsv(csv, encoding), outputName(file.name, '_changes'))
+    },
+    [file, table, editState],
+  )
 
   /** いまの値で調べ直す。人が押したときだけ。 */
   const recheck = useCallback(() => {
@@ -479,6 +553,16 @@ export function App() {
             />
 
             <HistoryPanel state={editState} columnNames={columnNames} />
+
+            <ExportPanel
+              fileName={file?.name ?? ''}
+              readEncoding={detection?.encoding ?? null}
+              editState={editState}
+              busy={busy}
+              onExport={onExport}
+              onExportHistory={onExportHistory}
+              lastExport={lastExport}
+            />
           </>
         )}
       </main>
