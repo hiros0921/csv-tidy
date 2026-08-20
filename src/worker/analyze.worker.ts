@@ -36,7 +36,20 @@ export type LoadRequest = {
 /** セル1つの説明文を聞く。画面がカーソルを合わせたときだけ来る。 */
 export type AskRequest = { readonly kind: 'ask'; readonly index: number }
 
-export type WorkerRequest = LoadRequest | AskRequest
+/**
+ * いまの値で、もう一度調べ直す。
+ *
+ * 【重要】人が押したときだけ走らせる。修正のたびに全件を走査すると固まる。
+ * 直したセルも例外にしない。直したつもりで問題が残っていれば、また問題として出す。
+ * ここを飛ばすと、再検査の意味が半分になる。
+ */
+export type RecheckRequest = {
+  readonly kind: 'recheck'
+  readonly columns: string[][]
+  readonly rowCount: number
+}
+
+export type WorkerRequest = LoadRequest | AskRequest | RecheckRequest
 
 export type LoadTimings = {
   readonly detectMs: number
@@ -97,11 +110,44 @@ let heldDetails: ReadonlyMap<number, CellDetail> = new Map()
 
 ctx.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const req = event.data
-  if (req.kind === 'ask') {
-    post({ kind: 'detail', index: req.index, detail: heldDetails.get(req.index) ?? null })
-    return
+  switch (req.kind) {
+    case 'ask':
+      post({ kind: 'detail', index: req.index, detail: heldDetails.get(req.index) ?? null })
+      return
+    case 'recheck':
+      recheck(req)
+      return
+    case 'load':
+      void run(req)
+      return
   }
-  void run(req)
+}
+
+/** いまの値で調べ直して、結果を送り返す。読み込みはやり直さない。 */
+function recheck(req: RecheckRequest): void {
+  try {
+    const a0 = performance.now()
+    const result = analyze(req.columns, req.rowCount, (progress) =>
+      post({ kind: 'progress', progress }),
+    )
+    const a1 = performance.now()
+    heldDetails = result.details
+    // 受け取った値は、こちらでは保持しない。持ち主はメイン側のまま。
+    req.columns.length = 0
+    post(
+      {
+        kind: 'analyzed',
+        flags: result.flags,
+        remedy: result.remedy,
+        rowIssues: [...result.rowIssues.entries()],
+        summary: result.summary,
+        analyzeMs: a1 - a0,
+      },
+      [result.flags.buffer, result.remedy.buffer],
+    )
+  } catch (e) {
+    post({ kind: 'failed', message: e instanceof Error ? e.message : String(e) })
+  }
 }
 
 async function run(req: LoadRequest): Promise<void> {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CLEAN, FIXED, ISSUE, R_AUTO, R_CHOICE, R_NONE, UNCHECKED, cellIndex } from './cell.ts'
 import type { MutableTable } from './edit.ts'
+import { analyze } from './detect/index.ts'
 import {
   UNDO_LIMIT,
   applyChoice,
@@ -290,5 +291,78 @@ describe('件数は積むときに数える（描画のたびに展開しない�
     const rows = recentHistoryRows(state, ['列1'], 5)
     expect(rows.length).toBe(5) // 1000件あっても5件しか作らない
     expect(rows[0]?.row).toBe(1000) // 新しい（末尾の）ほうから
+  })
+})
+
+describe('再検査（直したセルも、いまの値で判定し直す）', () => {
+  it('直して問題が消えたセルは、問題なしになる', () => {
+    const t = table([['佐藤 花子 ', '田中 一郎']])
+    const op = fixColumn(t, 1, AT, 0, 'trim')
+    if (op === null) throw new Error('op')
+    applyOp(t, op)
+
+    const again = analyze([t.columns[0]?.values ?? []], t.rowCount)
+    expect([...again.flags]).toEqual([CLEAN, CLEAN])
+    expect(again.summary.issueCells).toBe(0)
+  })
+
+  it('直したつもりで問題が残っていれば、また問題として出る', () => {
+    // 【重要】ここを飛ばすと再検査の意味が半分になる。
+    // 末尾の空白を取ったつもりで、全角スペースを入れてしまった例。
+    const t = table([['佐藤 花子 ', '田中 一郎']])
+    const op = editCell(t, 1, AT, 0, 0, '佐藤 花子　')
+    if (op === null) throw new Error('op')
+    applyOp(t, op)
+    expect(t.flags[0]).toBe(FIXED) // 画面上はいったん「直した」になる
+
+    const again = analyze([t.columns[0]?.values ?? []], t.rowCount)
+    expect(again.flags[0]).toBe(ISSUE) // 調べ直すと、また問題
+    const detail = again.details.get(0)
+    expect(detail?.kind).toBe('issue')
+    if (detail?.kind === 'issue') {
+      expect(detail.issues.map((i) => i.code)).toContain('trailing_space')
+    }
+  })
+
+  it('列を統一すると、表記揺れが消える（集計が減る）', () => {
+    const col = ['株式会社ヤマト商事', '(株)ヤマト商事', '㈱ヤマト商事']
+    const t = table([col])
+    const before = analyze([col], 3)
+    expect(before.summary.byCode['notation_variant']).toBe(3)
+
+    const op = unifyColumn(
+      t,
+      1,
+      AT,
+      0,
+      new Set(['(株)ヤマト商事', '㈱ヤマト商事']),
+      '株式会社ヤマト商事',
+      'notation_variant',
+    )
+    if (op === null) throw new Error('op')
+    applyOp(t, op)
+
+    const after = analyze([t.columns[0]?.values ?? []], t.rowCount)
+    expect(after.summary.byCode['notation_variant']).toBeUndefined()
+    expect(after.summary.issueCells).toBe(0)
+  })
+
+  it('再検査しても、変更履歴は消えない', () => {
+    // 検査は表の状態を作り直すが、記録は別に持っている。
+    const t = table([['a ']])
+    const op = fixColumn(t, 1, AT, 0, 'trim')
+    if (op === null) throw new Error('op')
+    applyOp(t, op)
+    const state = pushEdit(emptyEditState(), op)
+
+    analyze([t.columns[0]?.values ?? []], t.rowCount)
+
+    expect(state.log.length).toBe(1)
+    expect(state.editedCells).toBe(1)
+    expect(recentHistoryRows(state, ['列1'], 5)[0]).toMatchObject({
+      action: '修正',
+      before: 'a ',
+      after: 'a',
+    })
   })
 })

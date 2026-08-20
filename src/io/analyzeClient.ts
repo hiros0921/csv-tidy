@@ -65,6 +65,13 @@ export const SIZE_WARN_BYTES = 30 * 1024 * 1024
 export type Session = {
   /** 止める。Worker を捨てる。 */
   readonly cancel: () => void
+  /**
+   * いまの値で調べ直す。人が押したときだけ呼ぶ。
+   *
+   * 【重要】読み込みはやり直さない。同じ Worker に、いまの値を渡すだけ。
+   * 結果は onProgress → onAnalyzed で、最初の検出と同じ道筋で返る。
+   */
+  readonly recheck: (columns: readonly string[][], rowCount: number) => void
 }
 
 /**
@@ -82,7 +89,7 @@ export function startAnalyze(
   const fileKind = kindOf(file.name)
   if (fileKind === null) {
     handlers.onFailed(`対応していない拡張子です: ${file.name}`)
-    return { cancel: () => {} }
+    return { cancel: () => {}, recheck: () => {} }
   }
 
   const worker = new Worker(new URL('../worker/analyze.worker.ts', import.meta.url), {
@@ -185,6 +192,12 @@ export function startAnalyze(
       for (const resolve of waiting.values()) resolve(null)
       waiting.clear()
       worker.terminate()
+    },
+    recheck: (columns, rowCount) => {
+      if (!alive) return
+      // 値の配列を渡す。送る側（メイン）が一度だけ止まるが、
+      // 人が押したときにしか起きない（実測は報告に載せる）。
+      worker.postMessage({ kind: 'recheck', columns, rowCount })
     },
   }
 }

@@ -6,7 +6,7 @@ CSV / Excel の汚れを見つけて、直して、書き出すツール。
 ブラウザにも保存しません（localStorage / IndexedDB / Cookie を使いません）。
 タブを閉じれば消えます。
 
-> このREADMEは第7段階で仕上げます。いまは第5段階（修正・undo・変更履歴）まで。
+> このREADMEは第7段階で仕上げます。いまは第5段階（修正・undo・変更履歴・再検査）まで。
 
 ## 動かし方
 
@@ -14,7 +14,7 @@ CSV / Excel の汚れを見つけて、直して、書き出すツール。
 npm install        # SheetJS を公式配布から取るため、初回はネットワークが要ります
 npm run fixtures   # 検証用データを testdata/ に作る
 npm run dev
-npm test           # 91件。ブラウザもDOMも立てずに通る
+npm test           # 95件。ブラウザもDOMも立てずに通る
 npm run typecheck
 ```
 

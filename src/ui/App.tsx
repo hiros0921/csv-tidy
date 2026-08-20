@@ -13,7 +13,7 @@ import { SIZE_WARN_BYTES, kindOf, startAnalyze } from '../io/analyzeClient.ts'
 import type { Progress } from '../domain/detect/index.ts'
 import type { Table } from '../domain/table.ts'
 import type { FixSource } from '../domain/cell.ts'
-import { FIXED, cellIndex } from '../domain/cell.ts'
+import { CLEAN, FIXED, cellIndex } from '../domain/cell.ts'
 import type { Issue, IssueCode } from '../domain/issue.ts'
 import type { ColumnFix, EditOp, MutableTable } from '../domain/edit.ts'
 import {
@@ -42,8 +42,14 @@ const PHASE_LABEL: Readonly<Record<Progress['phase'], string>> = {
 
 const EMPTY_ROW_ISSUES: ReadonlyMap<number, Issue> = new Map()
 
-/** 直したセルの、元の値と決めた人。取り消すと消える。 */
-type FixedInfo = { readonly original: string; readonly by: FixSource }
+/**
+ * 直したセルの、元の値と決めた人。取り消すと消える。
+ *
+ * gen は「何回目の検査のあとに直したか」。
+ * これがいまの検査より古ければ、Worker が持っている説明文は直す前のもの
+ * なので聞きに行かない。再検査を挟めば新しくなるので、聞きに行く。
+ */
+type FixedInfo = { readonly original: string; readonly by: FixSource; readonly gen: number }
 
 export function App() {
   const [file, setFile] = useState<File | null>(null)
@@ -59,8 +65,12 @@ export function App() {
   const [oversized, setOversized] = useState<File | null>(null)
   const [inspect, setInspect] = useState<Inspect | null>(null)
   const [editState, setEditState] = useState(emptyEditState())
+  /** 前回の検査のあとに直した操作の数。0 でなければ集計が古い。 */
+  const [editsSinceCheck, setEditsSinceCheck] = useState(0)
 
   const sessionRef = useRef<Session | null>(null)
+  /** 何回目の検査か。1回目の検出が 1。再検査のたびに増える。 */
+  const genRef = useRef(0)
   /** 直したセルの元の値。表示のためだけに持つ。件数は直した数だけ。 */
   const fixedRef = useRef<Map<number, FixedInfo>>(new Map())
   useEffect(() => () => sessionRef.current?.cancel(), [])
@@ -83,7 +93,9 @@ export function App() {
     setProgress(null)
     setInspect(null)
     setEditState(emptyEditState())
+    setEditsSinceCheck(0)
     fixedRef.current = new Map()
+    genRef.current = 0
     setFile(target)
 
     sessionRef.current = startAnalyze(
@@ -98,9 +110,18 @@ export function App() {
         },
         onProgress: setProgress,
         onAnalyzed: (part) => {
+          genRef.current += 1
+          // 【重要】直したセルのうち、問題が無くなったものは「直した」色のままにする。
+          // 検査そのものは直したセルも例外にしない（いまの値で判定し直している）。
+          // 問題が残っていれば、ここで上書きされないので issue の色に戻る。
+          for (const index of fixedRef.current.keys()) {
+            if (part.flags[index] === CLEAN) part.flags[index] = FIXED
+          }
           setAnalyzed(part)
           setProgress(null)
           setBusy(false)
+          setEditsSinceCheck(0)
+          setInspect(null)
           setTable((prev) => (prev === null ? prev : { ...prev, flags: part.flags }))
         },
         onFailed: (message) => {
@@ -153,8 +174,13 @@ export function App() {
         const index = cellIndex(ch.col, ch.row, mutable.rowCount)
         // すでに直したセルを直し直したときは、いちばん最初の値を残す。
         const known = fixedRef.current.get(index)
-        fixedRef.current.set(index, { original: known?.original ?? ch.before, by: op.by })
+        fixedRef.current.set(index, {
+          original: known?.original ?? ch.before,
+          by: op.by,
+          gen: genRef.current,
+        })
       }
+      setEditsSinceCheck((n) => n + 1)
       // 【重要】値の配列は書き換えても参照が変わらないので、React 単体では
       // 変化に気づけない。ここで editState が新しくなることが、そのまま
       // 「描き直して」の合図になっている。10万行の配列を作り直す必要はない。
@@ -173,8 +199,17 @@ export function App() {
       fixedRef.current.delete(cellIndex(ch.col, ch.row, mutable.rowCount))
     }
     setEditState(popped.state)
+    setEditsSinceCheck((n) => n + 1)
     setInspect(null)
   }, [mutable, editState])
+
+  /** いまの値で調べ直す。人が押したときだけ。 */
+  const recheck = useCallback(() => {
+    if (values === null || table === null) return
+    setBusy(true)
+    setProgress({ phase: 'columns', done: 0, total: table.columns.length })
+    sessionRef.current?.recheck(values, table.rowCount)
+  }, [values, table])
 
   const now = (): string => new Date().toISOString()
 
@@ -238,8 +273,10 @@ export function App() {
         analyzed: analyzed !== null,
       }
       const ask = analyzed?.askDetail
-      // 直したセルの説明は、Worker が持っている「直す前」のものなので聞かない。
-      if (ask === undefined || table?.flags[index] === FIXED) {
+      // 直したあと、まだ調べ直していないセルは聞かない。
+      // Worker が持っているのは「直す前」の説明文で、いま出すと嘘になる。
+      const stale = fixed !== null && fixed.gen >= genRef.current
+      if (ask === undefined || stale) {
         setInspect(base)
         return
       }
@@ -332,6 +369,14 @@ export function App() {
               <button type="button" onClick={undo} disabled={editState.undoStack.length === 0}>
                 元に戻す
               </button>
+              <button
+                type="button"
+                className={editsSinceCheck > 0 ? 'btn--call' : ''}
+                onClick={recheck}
+                disabled={busy || analyzed === null}
+              >
+                再検査
+              </button>
               <span className="opts__note">
                 戻せる操作 {editState.undoStack.length} / {UNDO_LIMIT}
                 {editState.droppedFromUndo > 0 && (
@@ -383,11 +428,13 @@ export function App() {
               <IssuePanel summary={analyzed.summary} columnNames={columnNames} />
             )}
 
-            {editState.log.length > 0 && (
+            {editsSinceCheck > 0 && (
               <p className="warnline">
-                下の集計は<strong>検出したときのもの</strong>です。
-                いま直したぶんは反映されていません（もう一度調べ直す機能は入れていません）。
-                直した箇所は、表の中で緑になります。
+                直したあと、まだ調べ直していません。上の集計は
+                <strong>{editsSinceCheck} 操作ぶん古い</strong>状態です。
+                <button type="button" className="btn--call" onClick={recheck} disabled={busy}>
+                  いまの値で再検査する
+                </button>
               </p>
             )}
 

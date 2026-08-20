@@ -719,3 +719,14 @@ button:disabled {
 .sw--fixed {
   background: #eef7ee;
 }
+
+/* 再検査を促すボタン。集計が古いときだけ目立たせる。 */
+.btn--call {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.warnline .btn--call {
+  margin-left: 10px;
+}
