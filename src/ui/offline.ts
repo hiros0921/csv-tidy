@@ -19,13 +19,19 @@ export type OfflineState =
   /** この環境では使えない（開発中、または対応していないブラウザ） */
   | { readonly kind: 'unsupported' }
   /** 登録はできた。取得の途中。 */
-  | { readonly kind: 'preparing'; readonly stored: number; readonly total: number }
+  | {
+      readonly kind: 'preparing'
+      readonly stored: number
+      readonly total: number
+      /** まだ取れていないもの。原因を追えるように名前も持つ。 */
+      readonly missing: readonly string[]
+    }
   /** 全部そろった。ネットワークを切っても動く。 */
   | { readonly kind: 'ready'; readonly total: number }
   /** 登録できなかった。オフラインでは動かない（オンラインでは普通に動く）。 */
   | { readonly kind: 'failed' }
 
-type Status = { readonly stored: number; readonly total: number }
+type Status = { readonly stored: number; readonly total: number; readonly missing: readonly string[] }
 
 /** Service Worker に「いくつ保存できたか」を聞く。 */
 function askStatus(worker: ServiceWorker): Promise<Status | null> {
@@ -57,7 +63,12 @@ export function registerOffline(onChange: (state: OfflineState) => void): void {
       onChange({ kind: 'ready', total: status.total })
       return
     }
-    onChange({ kind: 'preparing', stored: status.stored, total: status.total })
+    onChange({
+      kind: 'preparing',
+      stored: status.stored,
+      total: status.total,
+      missing: status.missing ?? [],
+    })
     if (tries <= 0) return
     setTimeout(() => void poll(worker, tries - 1), 1000)
   }

@@ -393,6 +393,9 @@ export function App() {
           {offline.kind === 'preparing' && (
             <span className="privacy__offline">
               オフラインで使えるように保存しています（{offline.stored} / {offline.total} 件）。
+              {offline.missing.length > 0 && (
+                <> 残り：{offline.missing.map((m) => m.split('/').pop() || m).join('、')}</>
+              )}
             </span>
           )}
           {offline.kind === 'failed' && (

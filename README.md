@@ -29,6 +29,20 @@ React 19 + TypeScript（`strict`）/ Vite / Web Worker。サーバーはあり�
 | favicon の要求 | **0件** |
 | Cookie / localStorage / sessionStorage / IndexedDB | すべて空 |
 
+2回目以降は、**転送そのものが 0 バイト**になります。開発者ツールの実測です。
+
+```
+5 requests   0 B transferred   1.1 MB resources
+  localhost                    200  document    (ServiceWorker)
+  index-D0RnoWlt.js            200  script      (ServiceWorker)
+  index-DNHjkd5W.css           200  stylesheet  (ServiceWorker)
+  analyze.worker-Bf0B1UrQ.js   200  script      (ServiceWorker)
+  xlsx-Dzq1sfI1.js             200  script      (ServiceWorker)
+```
+
+`1.1 MB resources` を読み込みながら `0 B transferred` です。
+**SheetJS（xlsx）まで含めて、すべてが端末の中から返っています。**
+
 **送信は一切ありません。** 最初の読み込みでアプリ自身のファイルを取ってくるだけです。
 自分で書いたコードには、`fetch` / `XMLHttpRequest` / `WebSocket` / `sendBeacon` が
 **1つもありません**（`grep` で確かめられます）。
@@ -74,6 +88,27 @@ Workbox のようなライブラリは足していません。やることは
 チャンクが増えて一覧から漏れると、**オフラインのときだけ黙って壊れます。**
 画面には何も出ないので気づけません。`npm run build` と CI で、
 **ビルド結果と一覧が合っているかを機械で検査**しています。
+
+### ここでも1つ、名乗ってはいけない状態を出していました
+
+最初は「Service Worker が登録できた」時点で
+「ネットワークを切っても使えます」と表示していました。
+**登録できたことと、保存し終わったことは別です。**
+
+実測で、保存が全滅しているのに「使えます」と出ている状態を踏みました。
+いまは Service Worker に**いくつ保存できたかを数えさせて**、その答えを待ってから出します。
+
+```
+保存中  オフラインで使えるように保存しています（4 / 6 件）。残り：xlsx-....js
+完了    ネットワークを切っても、そのまま使えます（6 件を保存済み）
+失敗    オフラインの保存はできていません。ネットワークがあれば、そのまま使えます
+```
+
+足りないものは**名前も返します。** 件数だけだと原因を追えません。
+
+あわせて、**入れ直しのときは足りないものだけを取る**ようにしました。
+毎回すべてを取りに行くと、ネットワークが切れているときに
+「すでに全部そろっているのに取りに行って失敗する」ことになります。
 
 ---
 

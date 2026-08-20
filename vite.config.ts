@@ -85,18 +85,49 @@ const ASSETS = ${JSON.stringify([publicBase, ...assets], null, 2)}
 const INDEX = '${publicBase}'
 
 self.addEventListener('install', (event) => {
-  // 【重要】addAll は全部そろって初めて成功する（途中で失敗したら全体が失敗）。
-  // その場合この Service Worker は捨てられ、前の版が動き続ける。
-  // 中途半端な保存で activate させないための性質なので、そのまま使う。
-  event.waitUntil(
-    caches
-      .open(CACHE)
-      .then((cache) => cache.addAll(ASSETS))
-      // 古い版を待たずに入れ替える。取り残しがあると、
-      // 新旧のチャンクが混ざって動かなくなる。
-      .then(() => self.skipWaiting()),
-  )
+  event.waitUntil(install())
 })
+
+/**
+ * 足りないものだけを取る。
+ *
+ * 【重要】毎回 addAll(ASSETS) を呼ばない。
+ * DevTools の「Update on reload」が入っていると、再読み込みのたびに
+ * 同じ版が入れ直される。そのときネットワークが切れていると、
+ * すでに全部そろっているのに取りに行って失敗する。
+ * 実測でこれを踏んだ（オフラインで 4/6 件と表示され、sw.js にエラーが出た）。
+ *
+ * 先に何が足りないかを数えて、足りないものが無ければ何もしない。
+ * こうすると、オフラインでの入れ直しが素通りになる。
+ */
+async function install() {
+  const cache = await caches.open(CACHE)
+  const missing = []
+  for (const asset of ASSETS) {
+    const hit = await cache.match(asset)
+    if (!hit) missing.push(asset)
+  }
+  // addAll は全部そろって初めて成功する（途中で失敗したら全体が失敗）。
+  // 中途半端な保存で activate させないための性質なので、そのまま使う。
+  if (missing.length > 0) {
+    try {
+      await cache.addAll(missing)
+    } catch (cause) {
+      // 【重要】ここで握りつぶさない。
+      // 握りつぶすと、足りないまま activate してしまい、
+      // オフラインのときに一部だけ動かない状態になる。
+      // 失敗させれば、この版は捨てられ、前の版が動き続ける。
+      // 生の net::ERR_... だけだと読めないので、何が起きたかを添える。
+      throw new Error(
+        'オフラインのため ' + missing.length + ' 件を保存できませんでした（' +
+          missing.join(', ') + '）。前の版がそのまま動きます。',
+      )
+    }
+  }
+  // 古い版を待たずに入れ替える。取り残しがあると、
+  // 新旧のチャンクが混ざって動かなくなる。
+  await self.skipWaiting()
+}
 
 /**
  * 保存が本当に終わったかを、画面へ答える。
@@ -114,10 +145,11 @@ self.addEventListener('message', (event) => {
     .open(CACHE)
     .then((cache) => Promise.all(ASSETS.map((a) => cache.match(a))))
     .then((hits) => {
-      const stored = hits.filter(Boolean).length
-      reply.postMessage({ stored: stored, total: ASSETS.length })
+      // 【重要】足りないものの名前も返す。件数だけだと原因を追えない。
+      const missing = ASSETS.filter((_, i) => !hits[i])
+      reply.postMessage({ stored: ASSETS.length - missing.length, total: ASSETS.length, missing: missing })
     })
-    .catch(() => reply.postMessage({ stored: 0, total: ASSETS.length }))
+    .catch(() => reply.postMessage({ stored: 0, total: ASSETS.length, missing: ASSETS }))
 })
 
 self.addEventListener('activate', (event) => {
