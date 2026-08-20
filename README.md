@@ -30,21 +30,12 @@ React 19 + TypeScript（`strict`）/ Vite / Web Worker。サーバーはあり�
 | Cookie / localStorage / sessionStorage / IndexedDB | すべて空 |
 
 2回目以降は、**ネットワークを切っても、転送 0 バイトで最後まで動きます。**
-開発者ツールの Network を **Offline** にして測った結果です。
 
-```
-Offline                    5 requests   0 B transferred   1.1 MB resources
-  localhost                200  document    (ServiceWorker)
-  index-BmU7mgkW.js        200  script      (ServiceWorker)
-  index-DNHjkd5W.css       200  stylesheet  (ServiceWorker)
-  analyze.worker-….js      200  script      (ServiceWorker)
-  xlsx-….js                200  script      (ServiceWorker)
-
-Issues: No issues detected
-```
+![開発者ツールを Offline にした状態。5件すべてが (ServiceWorker) から返り、0 B transferred。Issues も 0件](docs/network.png)
 
 `1.1 MB resources` を読み込みながら `0 B transferred` です。
 **SheetJS（xlsx）まで含めて、すべてが端末の中から返っています。**
+画面左には「ネットワークを切っても、そのまま使えます（6 件を保存済み）」と出ています。
 
 **送信は一切ありません。** 最初の読み込みでアプリ自身のファイルを取ってくるだけです。
 自分で書いたコードには、`fetch` / `XMLHttpRequest` / `WebSocket` / `sendBeacon` が
